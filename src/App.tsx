@@ -39,11 +39,12 @@ import {
   LogOut, 
   LogIn,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  BarChart3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -274,24 +275,15 @@ export default function App() {
     
     // Add Logo to PDF
     try {
-      // We use a try-catch and check if logoError is true
       if (!logoError) {
         doc.addImage(logoUrl, 'PNG', 10, 10, 20, 20);
       } else {
-        throw new Error('Logo error state is true');
+        // Just use fallback if there's a logo error
+        drawFallbackLogo(doc);
       }
     } catch (error) {
-      console.error('Could not add logo to PDF:', error);
-      // Fallback: draw a stylized text logo
-      doc.setDrawColor(142, 93, 90); // Brand Rose
-      doc.setLineWidth(0.5);
-      doc.circle(20, 20, 10, 'S');
-      doc.setFontSize(12);
-      doc.setTextColor(142, 93, 90);
-      doc.text('LK', 17, 21);
-      doc.setFontSize(6);
-      doc.setTextColor(197, 160, 89); // Brand Gold
-      doc.text('CLOSET', 16, 25);
+      console.warn('Could not add logo to PDF, using fallback:', error);
+      drawFallbackLogo(doc);
     }
     
     doc.setFontSize(20);
@@ -302,7 +294,7 @@ export default function App() {
     doc.setTextColor(197, 160, 89); // #C5A059 (Brand Gold)
     doc.text(`Relatório de Boutique gerado em: ${today}`, 35, 27);
 
-    const tableData = filteredClients.map(c => [
+    const tableData = clients.map(c => [
       c.nome,
       c.telefone,
       c.tamanho || '-',
@@ -313,7 +305,7 @@ export default function App() {
       format(c.created_at.toDate(), 'dd/MM/yyyy')
     ]);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       head: [['Nome', 'Telefone', 'Tam', 'Cidade', 'Interesse', 'Canal', 'Status', 'Data']],
       body: tableData,
       startY: 30,
@@ -322,6 +314,126 @@ export default function App() {
     });
 
     doc.save(`crm_clientes_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
+  // Helper to draw fallback logo in PDF
+  const drawFallbackLogo = (pdfDoc: jsPDF) => {
+    pdfDoc.setDrawColor(142, 93, 90); // Brand Rose
+    pdfDoc.setLineWidth(0.5);
+    pdfDoc.circle(20, 20, 10, 'S');
+    pdfDoc.setFontSize(12);
+    pdfDoc.setTextColor(142, 93, 90);
+    pdfDoc.text('LK', 17, 21);
+    pdfDoc.setFontSize(6);
+    pdfDoc.setTextColor(197, 160, 89); // Brand Gold
+    pdfDoc.text('CLOSET', 16, 25);
+  };
+
+  const generateReportPDF = () => {
+    const doc = new jsPDF();
+    const today = format(new Date(), 'dd/MM/yyyy');
+    const logoUrl = 'https://storage.googleapis.com/static.antigravity.ai/as/67db1857640f06002c019d45/d5b5976b-36f7-497a-9774-8848a27271e8.png';
+    
+    // Header
+    try {
+      if (!logoError) {
+        doc.addImage(logoUrl, 'PNG', 10, 10, 20, 20);
+      } else {
+        drawFallbackLogo(doc);
+      }
+    } catch (e) {
+      drawFallbackLogo(doc);
+    }
+
+    doc.setFontSize(20);
+    doc.setTextColor(142, 93, 90);
+    doc.text('RELATÓRIO ANALÍTICO - CLOSET LK', 35, 20);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(197, 160, 89);
+    doc.text(`Análise de Performance gerada em: ${today}`, 35, 27);
+
+    // Data processing
+    const cityCounts: Record<string, number> = {};
+    const channelCounts: Record<string, number> = {};
+    
+    clients.forEach(c => {
+      const city = c.cidade || 'Não Informada';
+      cityCounts[city] = (cityCounts[city] || 0) + 1;
+      
+      const channel = c.canal || 'Não Informado';
+      channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+    });
+
+    // Draw City Chart
+    doc.setFontSize(16);
+    doc.setTextColor(142, 93, 90);
+    doc.text('Distribuição por Cidade', 15, 45);
+    
+    let y = 55;
+    const maxBarWidth = 100;
+    const cityEntries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const maxCityCount = Math.max(...cityEntries.map(e => e[1]), 1);
+    
+    cityEntries.forEach(([city, count]) => {
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      doc.text(`${city.substring(0, 20)}: ${count}`, 15, y + 5);
+      
+      const barWidth = (count / maxCityCount) * maxBarWidth;
+      doc.setFillColor(197, 160, 89); // Gold
+      doc.rect(60, y, barWidth, 6, 'F');
+      y += 10;
+    });
+
+    // Draw Channel Chart
+    y += 15;
+    if (y > 250) { doc.addPage(); y = 20; }
+    
+    doc.setFontSize(16);
+    doc.setTextColor(142, 93, 90);
+    doc.text('Canais de Aquisição', 15, y);
+    y += 10;
+    
+    const channelEntries = Object.entries(channelCounts).sort((a, b) => b[1] - a[1]);
+    const maxChannelCount = Math.max(...channelEntries.map(e => e[1]), 1);
+    
+    channelEntries.forEach(([channel, count]) => {
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      doc.text(`${channel}: ${count}`, 15, y + 5);
+      
+      const barWidth = (count / maxChannelCount) * maxBarWidth;
+      doc.setFillColor(142, 93, 90); // Rose
+      doc.rect(60, y, barWidth, 6, 'F');
+      y += 10;
+    });
+
+    // Summary Table
+    y += 15;
+    if (y > 220) { doc.addPage(); y = 20; }
+    
+    doc.setFontSize(14);
+    doc.setTextColor(142, 93, 90);
+    doc.text('Resumo Geral', 15, y);
+    
+    const totalClients = clients.length;
+    const completedSales = clients.filter(c => c.comprou_status === 'sim').length;
+    const conversionRate = totalClients > 0 ? ((completedSales / totalClients) * 100).toFixed(1) : '0';
+
+    autoTable(doc, {
+      head: [['Métrica', 'Valor']],
+      body: [
+        ['Total de Clientes', totalClients.toString()],
+        ['Vendas Finalizadas', completedSales.toString()],
+        ['Taxa de Conversão', `${conversionRate}%`],
+      ],
+      startY: y + 5,
+      styles: { fontSize: 10 },
+      headStyles: { fillColor: [197, 160, 89] },
+    });
+
+    doc.save(`relatorio_closet_lk_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
   if (loading) {
@@ -357,6 +469,7 @@ export default function App() {
                   alt="CLOSET LK Logo" 
                   className="w-full h-full object-contain"
                   referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
                   onError={() => {
                     setLogoError(true);
                     console.error('Logo failed to load, using text fallback');
@@ -596,17 +709,25 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="bg-white/50 rounded-xl px-4 py-2 shadow-sm border border-brand-rose/10">
               <span className="text-brand-rose/60 font-medium">Total: </span>
               <span className="text-brand-rose font-bold">{filteredClients.length}</span>
             </div>
-            <button 
-              onClick={exportPDF}
-              className="gold-button font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2"
-            >
-              <Download className="w-5 h-5" /> Exportar PDF
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button 
+                onClick={generateReportPDF}
+                className="bg-white text-brand-rose border border-brand-gold/30 font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 hover:bg-brand-blush"
+              >
+                <BarChart3 className="w-5 h-5 text-brand-gold" /> Relatório
+              </button>
+              <button 
+                onClick={exportPDF}
+                className="gold-button font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2"
+              >
+                <Download className="w-5 h-5" /> Exportar PDF
+              </button>
+            </div>
           </div>
         </div>
 
