@@ -1,28 +1,28 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;600;700&family=Montserrat:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
 
 @theme {
-  --font-heading: 'Bodoni Moda', serif;
-  --font-body: 'Montserrat', sans-serif;
+  --font-heading: 'Outfit', sans-serif;
+  --font-body: 'Inter', sans-serif;
 }
 
 @layer base {
   body {
-    @apply font-body bg-[#fdf2f8] text-[#9f1239];
+    @apply font-body bg-slate-50 text-slate-900;
   }
 }
 
 @layer components {
   .glass-effect {
-    @apply bg-white/70 backdrop-blur-md border border-white/80;
+    @apply bg-white/80 backdrop-blur-md border border-slate-200/50;
   }
   
-  .gradient-purple {
-    background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 50%, #f9a8d4 100%);
+  .gradient-blue {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
   }
   
-  .gradient-rose {
-    background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 50%, #fbcfe8 100%);
+  .gradient-professional {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
   }
 }
 
@@ -31,12 +31,12 @@
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(236, 72, 153, 0.1);
+  background: rgba(148, 163, 184, 0.1);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(236, 72, 153, 0.4);
+  background: rgba(148, 163, 184, 0.4);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(236, 72, 153, 0.6);
+  background: rgba(148, 163, 184, 0.6);
 }

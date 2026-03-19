@@ -2,7 +2,7 @@
   "entities": {
     "Cliente": {
       "title": "Cliente",
-      "description": "Dados da cliente do Closet LK",
+      "description": "Dados de clientes do CRM Profissional",
       "type": "object",
       "properties": {
         "nome": {
