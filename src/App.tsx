@@ -140,9 +140,24 @@ function KanbanCard({ client }: { client: Cliente, key?: string }) {
           {client.tamanho}
         </span>
       </div>
-      <div className="flex items-center gap-2 text-brand-rose/60 text-[10px] mb-2">
-        <Phone className="w-3 h-3" />
-        {client.telefone}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-brand-rose/60 text-[10px]">
+          <Phone className="w-3 h-3" />
+          {client.telefone}
+        </div>
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            const cleaned = client.telefone.replace(/\D/g, '');
+            const waNumber = cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
+            window.open(`https://wa.me/${waNumber}`, '_blank');
+          }}
+          className="p-1.5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-sm"
+          title="Chamar no WhatsApp"
+        >
+          <MessageCircle className="w-3 h-3" />
+        </button>
       </div>
       {client.comprou && (
         <div className="flex flex-wrap gap-1">
