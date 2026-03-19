@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "Cliente": {
+      "title": "Cliente",
+      "description": "Dados da cliente do Closet LK",
+      "type": "object",
+      "properties": {
+        "nome": {
+          "type": "string",
+          "description": "Nome completo da cliente"
+        },
+        "telefone": {
+          "type": "string",
+          "description": "Telefone de contato"
+        },
+        "tamanho": {
+          "type": "string",
+          "description": "Tamanho de roupa (P, M, G, GG)"
+        },
+        "cidade": {
+          "type": "string",
+          "description": "Cidade da cliente"
+        },
+        "comprou": {
+          "type": "string",
+          "description": "O que a cliente comprou"
+        },
+        "queria_comprar": {
+          "type": "string",
+          "description": "O que a cliente desejava comprar"
+        },
+        "canal": {
+          "type": "string",
+          "description": "Canal de venda (WhatsApp, Instagram, etc)"
+        },
+        "comprou_status": {
+          "type": "string",
+          "enum": ["sim", "nao"],
+          "description": "Status se a compra foi concretizada"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Data de cadastro"
+        },
+        "uid": {
+          "type": "string",
+          "description": "ID do usuário que cadastrou"
+        }
+      },
+      "required": ["nome", "telefone", "canal", "comprou_status", "created_at", "uid"]
+    }
+  },
+  "firestore": {
+    "clientes": {
+      "schema": "Cliente",
+      "description": "Coleção de clientes cadastradas"
+    }
+  }
+}

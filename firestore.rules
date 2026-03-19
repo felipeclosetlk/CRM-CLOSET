@@ -1,0 +1,62 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: clientes
+// Document ID: auto-generated
+// Fields:
+//   - nome: string (required) - Nome da cliente
+//   - telefone: string (required) - Telefone
+//   - tamanho: string (optional) - Tamanho
+//   - cidade: string (optional) - Cidade
+//   - comprou: string (optional) - Itens comprados
+//   - queria_comprar: string (optional) - Itens desejados
+//   - canal: string (required) - Canal de venda
+//   - comprou_status: string (required, enum: ['sim', 'nao']) - Status da compra
+//   - created_at: timestamp (required) - Data de criação
+//   - uid: string (required) - ID do dono do registro
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isValidCliente(data) {
+      return data.nome is string && data.nome.size() > 0 && data.nome.size() < 200 &&
+             data.telefone is string && data.telefone.size() > 0 && data.telefone.size() < 30 &&
+             (!('tamanho' in data) || (data.tamanho is string && data.tamanho.size() < 10)) &&
+             (!('cidade' in data) || (data.cidade is string && data.cidade.size() < 100)) &&
+             (!('comprou' in data) || (data.comprou is string && data.comprou.size() < 500)) &&
+             (!('queria_comprar' in data) || (data.queria_comprar is string && data.queria_comprar.size() < 500)) &&
+             data.canal is string && data.canal.size() > 0 && data.canal.size() < 50 &&
+             data.comprou_status in ['sim', 'nao'] &&
+             data.created_at is timestamp &&
+             data.uid == request.auth.uid;
+    }
+
+    match /clientes/{clienteId} {
+      allow read: if isAuthenticated() && isDocOwner();
+      allow create: if isAuthenticated() && isValidCliente(request.resource.data);
+      allow update: if isAuthenticated() && isDocOwner() && isValidCliente(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}
