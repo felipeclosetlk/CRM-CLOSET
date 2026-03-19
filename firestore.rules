@@ -45,14 +45,14 @@ service cloud.firestore {
              data.canal is string && data.canal.size() > 0 && data.canal.size() < 100 &&
              data.comprou_status in ['sim', 'nao'] &&
              data.created_at is timestamp &&
-             data.uid == request.auth.uid;
+             data.uid is string && data.uid.size() > 0;
     }
 
     match /clientes/{clienteId} {
-      allow read: if isAuthenticated() && isDocOwner();
-      allow create: if isAuthenticated() && isValidCliente(request.resource.data);
-      allow update: if isAuthenticated() && isDocOwner() && isValidCliente(request.resource.data);
-      allow delete: if isAuthenticated() && isDocOwner();
+      allow read: if true;
+      allow create: if isValidCliente(request.resource.data);
+      allow update: if isValidCliente(request.resource.data);
+      allow delete: if true;
     }
 
     match /users/{userId} {

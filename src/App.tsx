@@ -71,6 +71,16 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 };
 
+// Helper to get or create a local guest ID
+const getGuestId = () => {
+  let id = localStorage.getItem('crm_guest_id');
+  if (!id) {
+    id = 'guest_' + Math.random().toString(36).substring(2, 11);
+    localStorage.setItem('crm_guest_id', id);
+  }
+  return id;
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,14 +138,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      setClients([]);
-      return;
-    }
-
+    const effectiveUid = user?.uid || getGuestId();
+    
     const q = query(
       collection(db, 'clientes'),
-      where('uid', '==', user.uid)
+      where('uid', '==', effectiveUid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -182,20 +189,17 @@ export default function App() {
     e.preventDefault();
     setFeedback(null);
 
-    if (!user) {
-      setFeedback({ type: 'error', message: 'Você não está conectado. Tente recarregar a página.' });
-      return;
-    }
-
     if (isSubmitting) return;
 
     setIsSubmitting(true);
     try {
+      const effectiveUid = user?.uid || getGuestId();
+      
       const newClient: Omit<Cliente, 'id'> = {
         ...formData,
         comprou_status: 'nao',
         created_at: Timestamp.now(),
-        uid: user.uid
+        uid: effectiveUid
       };
 
       console.log('Salvando cliente:', newClient);
@@ -322,9 +326,9 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-full border border-slate-100">
-              <div className={`w-2 h-2 rounded-full ${user ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+              <div className={`w-2 h-2 rounded-full ${user ? (user.isAnonymous ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-300'}`}></div>
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                {user ? (user.isAnonymous ? 'Modo Visitante' : 'Sincronizado') : 'Desconectado'}
+                {user ? (user.isAnonymous ? 'Modo Visitante' : 'Sincronizado') : 'Modo Local'}
               </span>
             </div>
             {user && !user.isAnonymous && (
