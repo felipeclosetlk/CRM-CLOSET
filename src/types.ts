@@ -10,6 +10,8 @@ export interface Cliente {
   queria_comprar?: string;
   canal: string;
   comprou_status: 'sim' | 'nao';
+  status_crm?: 'LEAD FRIO' | 'LEAD MORNO' | 'LEAD QUENTE' | 'EM ATENDIMENTO' | 'FINALIZADO';
+  posicao?: number;
   created_at: Timestamp;
   uid: string;
 }

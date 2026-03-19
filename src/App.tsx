@@ -43,8 +43,31 @@ import {
   BarChart3,
   Edit2,
   X,
-  Clipboard
+  Clipboard,
+  LayoutDashboard,
+  List
 } from 'lucide-react';
+import { 
+  DndContext, 
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  useDroppable,
+  defaultDropAnimationSideEffects
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -85,6 +108,82 @@ const getGuestId = () => {
   return id;
 };
 
+const SECTORES_CRM = ['LEAD FRIO', 'LEAD MORNO', 'LEAD QUENTE', 'EM ATENDIMENTO', 'FINALIZADO'] as const;
+
+function KanbanCard({ client }: { client: Cliente, key?: string }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: client.id! });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="bg-white p-4 rounded-xl shadow-sm border border-brand-rose/5 mb-3 cursor-grab active:cursor-grabbing hover:border-brand-gold transition-colors"
+    >
+      <div className="flex justify-between items-start mb-2">
+        <h4 className="font-bold text-brand-rose text-sm leading-tight">{client.nome}</h4>
+        <span className="text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-0.5 rounded-full font-bold">
+          {client.tamanho}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 text-brand-rose/60 text-[10px] mb-2">
+        <Phone className="w-3 h-3" />
+        {client.telefone}
+      </div>
+      {client.comprou && (
+        <div className="flex flex-wrap gap-1">
+          {client.comprou.split(', ').slice(0, 2).map((p, i) => (
+            <span key={i} className="text-[9px] bg-brand-rose/5 text-brand-rose/70 px-1.5 py-0.5 rounded-md">
+              {p}
+            </span>
+          ))}
+          {client.comprou.split(', ').length > 2 && (
+            <span className="text-[9px] text-brand-rose/40">+{client.comprou.split(', ').length - 2}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KanbanColumn({ status, clients }: { status: string, clients: Cliente[], key?: string }) {
+  const { setNodeRef } = useDroppable({ id: status });
+
+  return (
+    <div className="flex-1 min-w-[280px] bg-brand-rose/5 rounded-2xl p-4 flex flex-col h-full max-h-[70vh]">
+      <div className="flex items-center justify-between mb-4 px-2">
+        <h3 className="font-display font-bold text-brand-rose text-sm tracking-wider uppercase">
+          {status}
+        </h3>
+        <span className="bg-brand-rose/10 text-brand-rose text-[10px] px-2 py-0.5 rounded-full font-bold">
+          {clients.length}
+        </span>
+      </div>
+      <div ref={setNodeRef} className="flex-1 overflow-y-auto custom-scrollbar pr-1 min-h-[200px]">
+        <SortableContext items={clients.map(c => c.id!)} strategy={verticalListSortingStrategy}>
+          {clients.map(client => (
+            <KanbanCard key={client.id} client={client} />
+          ))}
+        </SortableContext>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +196,8 @@ export default function App() {
   const [editingClient, setEditingClient] = useState<Cliente | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importText, setImportText] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   // Helper function to extract info from text
   const extractInfoFromText = (text: string) => {
@@ -321,10 +422,15 @@ export default function App() {
         ...doc.data()
       })) as Cliente[];
       
-      // Sort client-side by created_at desc
-      const sortedClients = clientsData.sort((a, b) => 
-        b.created_at.toMillis() - a.created_at.toMillis()
-      );
+      // Sort client-side by posicao (if exists) and then created_at desc
+      const sortedClients = clientsData.sort((a, b) => {
+        if (a.posicao !== undefined && b.posicao !== undefined) {
+          return a.posicao - b.posicao;
+        }
+        if (a.posicao !== undefined) return -1;
+        if (b.posicao !== undefined) return 1;
+        return b.created_at.toMillis() - a.created_at.toMillis();
+      });
       
       setClients(sortedClients);
     }, (error: any) => {
@@ -378,6 +484,7 @@ export default function App() {
         const newClient: Omit<Cliente, 'id'> = {
           ...formData,
           comprou_status: 'nao',
+          status_crm: 'LEAD FRIO',
           created_at: Timestamp.now(),
           uid: effectiveUid
         };
@@ -508,6 +615,99 @@ export default function App() {
       await deleteDoc(doc(db, 'clientes', id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `clientes/${id}`);
+    }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over) return;
+
+    const clientId = active.id as string;
+    const overId = over.id as string;
+
+    // Resolve new status
+    let newStatus: Cliente['status_crm'];
+    
+    // Check if dropped over a column (status)
+    const isStatus = SECTORES_CRM.includes(overId as any);
+    
+    if (isStatus) {
+      newStatus = overId as Cliente['status_crm'];
+    } else {
+      // Dropped over a card, find that card's status
+      const overClient = clients.find(c => c.id === overId);
+      if (overClient) {
+        newStatus = overClient.status_crm || 'LEAD FRIO';
+      } else {
+        return;
+      }
+    }
+
+    const activeClient = clients.find(c => c.id === clientId);
+    if (!activeClient) return;
+
+    const oldStatus = activeClient.status_crm || 'LEAD FRIO';
+
+    if (oldStatus !== newStatus) {
+      // Move to another column
+      try {
+        await updateDoc(doc(db, 'clientes', clientId), {
+          status_crm: newStatus
+        });
+      } catch (error) {
+        console.error('Erro ao atualizar status CRM:', error);
+      }
+    } else if (active.id !== over.id) {
+      // Reorder within the same column
+      const columnClients = clients.filter(c => (c.status_crm || 'LEAD FRIO') === newStatus);
+      const oldIndex = columnClients.findIndex(c => c.id === active.id);
+      const newIndex = columnClients.findIndex(c => c.id === over.id);
+      
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newColumnClients = arrayMove(columnClients, oldIndex, newIndex) as Cliente[];
+        
+        // Update all positions in this column locally first for immediate feedback
+        setClients((prev: Cliente[]) => {
+          const otherClients = prev.filter(c => (c.status_crm || 'LEAD FRIO') !== newStatus);
+          const updatedColumnClients = newColumnClients.map((c: Cliente, i: number) => ({ ...c, posicao: i }));
+          return [...otherClients, ...updatedColumnClients].sort((a, b) => {
+            if (a.posicao !== undefined && b.posicao !== undefined) return a.posicao - b.posicao;
+            if (a.posicao !== undefined) return -1;
+            if (b.posicao !== undefined) return 1;
+            return b.created_at.toMillis() - a.created_at.toMillis();
+          });
+        });
+
+        // Update in Firebase
+        try {
+          const updates = newColumnClients.map((c: Cliente, index: number) => {
+            if (c.id) {
+              return updateDoc(doc(db, 'clientes', c.id), { posicao: index });
+            }
+            return Promise.resolve();
+          });
+          await Promise.all(updates);
+        } catch (error) {
+          console.error('Erro ao reordenar clientes:', error);
+        }
+      }
     }
   };
 
@@ -961,6 +1161,35 @@ export default function App() {
 
         {/* Filters & Actions */}
         <div className="space-y-4 mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xl font-display font-bold text-brand-rose flex items-center gap-2">
+              {viewMode === 'list' ? <Users className="w-6 h-6 text-brand-gold" /> : <LayoutDashboard className="w-6 h-6 text-brand-gold" />}
+              {viewMode === 'list' ? 'Lista de Clientes' : 'Quadro Kanban CRM'}
+            </h3>
+            <div className="flex bg-white/50 p-1 rounded-xl border border-brand-rose/10 shadow-sm">
+              <button 
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                  viewMode === 'list' 
+                    ? 'gold-button shadow-md' 
+                    : 'text-brand-rose/40 hover:text-brand-rose'
+                }`}
+              >
+                <List className="w-4 h-4" /> Lista
+              </button>
+              <button 
+                onClick={() => setViewMode('kanban')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                  viewMode === 'kanban' 
+                    ? 'gold-button shadow-md' 
+                    : 'text-brand-rose/40 hover:text-brand-rose'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4" /> Kanban
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-[200px] relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-gold" />
@@ -1018,9 +1247,37 @@ export default function App() {
 
         {/* List Section */}
         <div className="space-y-4">
-          <AnimatePresence mode="popLayout">
-            {filteredClients.length > 0 ? (
-              filteredClients.map((client) => (
+          {viewMode === 'kanban' ? (
+            <div className="overflow-x-auto pb-6 -mx-4 px-4">
+              <DndContext 
+                sensors={sensors}
+                collisionDetection={closestCorners}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="flex gap-6 min-w-max">
+                  {SECTORES_CRM.map((sector) => (
+                    <KanbanColumn 
+                      key={sector} 
+                      status={sector}
+                      clients={filteredClients.filter(c => (!c.status_crm && sector === 'LEAD FRIO') || c.status_crm === sector)}
+                    />
+                  ))}
+                </div>
+                <DragOverlay>
+                  {activeId ? (
+                    <div className="w-72 bg-white rounded-2xl shadow-2xl p-4 border-2 border-brand-gold opacity-90 scale-105">
+                      <p className="font-bold text-brand-rose">{clients.find(c => c.id === activeId)?.nome}</p>
+                      <p className="text-xs text-brand-rose/60">{clients.find(c => c.id === activeId)?.telefone}</p>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            </div>
+          ) : (
+            <AnimatePresence mode="popLayout">
+              {filteredClients.length > 0 ? (
+                filteredClients.map((client) => (
                 <motion.div 
                   key={client.id}
                   layout
@@ -1128,6 +1385,7 @@ export default function App() {
               </motion.div>
             )}
           </AnimatePresence>
+          )}
         </div>
       </main>
 
