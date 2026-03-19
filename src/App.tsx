@@ -79,6 +79,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchSize, setSearchSize] = useState('');
   const [searchCity, setSearchCity] = useState('');
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -100,6 +101,7 @@ export default function App() {
     }, 6000);
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      console.log('Auth state changed:', user ? `User ${user.uid} (${user.isAnonymous ? 'Anonymous' : 'Google'})` : 'No user');
       if (user) {
         setUser(user);
         setLoading(false);
@@ -107,6 +109,7 @@ export default function App() {
       } else if (!isSigningIn) {
         isSigningIn = true;
         try {
+          console.log('Attempting anonymous sign in...');
           await signInAnonymously(auth);
         } catch (error) {
           console.error('Anonymous login error:', error);
@@ -132,8 +135,7 @@ export default function App() {
 
     const q = query(
       collection(db, 'clientes'),
-      where('uid', '==', user.uid),
-      orderBy('created_at', 'desc')
+      where('uid', '==', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -141,9 +143,20 @@ export default function App() {
         id: doc.id,
         ...doc.data()
       })) as Cliente[];
-      setClients(clientsData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'clientes');
+      
+      // Sort client-side by created_at desc
+      const sortedClients = clientsData.sort((a, b) => 
+        b.created_at.toMillis() - a.created_at.toMillis()
+      );
+      
+      setClients(sortedClients);
+    }, (error: any) => {
+      console.error('Erro ao carregar lista:', error);
+      if (error.message?.includes('index')) {
+        setFeedback({ type: 'error', message: 'Erro de configuração: O banco de dados precisa de um índice. Tente novamente em alguns minutos.' });
+      } else {
+        setFeedback({ type: 'error', message: 'Erro ao carregar a lista de clientes.' });
+      }
     });
 
     return () => unsubscribe();
@@ -167,7 +180,14 @@ export default function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || isSubmitting) return;
+    setFeedback(null);
+
+    if (!user) {
+      setFeedback({ type: 'error', message: 'Você não está conectado. Tente recarregar a página.' });
+      return;
+    }
+
+    if (isSubmitting) return;
 
     setIsSubmitting(true);
     try {
@@ -178,7 +198,10 @@ export default function App() {
         uid: user.uid
       };
 
+      console.log('Salvando cliente:', newClient);
       await addDoc(collection(db, 'clientes'), newClient);
+      
+      setFeedback({ type: 'success', message: 'Cadastro realizado com sucesso!' });
       setFormData({
         nome: '',
         telefone: '',
@@ -188,8 +211,21 @@ export default function App() {
         queria_comprar: '',
         canal: ''
       });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'clientes');
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      console.error('Erro ao salvar:', error);
+      let message = 'Erro ao salvar o cadastro. Verifique sua conexão.';
+      
+      if (error.message?.includes('permission-denied')) {
+        message = 'Erro de permissão. Tente entrar novamente.';
+      } else if (error.message?.includes('quota-exceeded')) {
+        message = 'Limite de uso do banco de dados atingido.';
+      }
+      
+      setFeedback({ type: 'error', message });
+      // Don't throw here so we can show the UI message
     } finally {
       setIsSubmitting(false);
     }
@@ -285,6 +321,12 @@ export default function App() {
             <h1 className="text-xl font-bold text-slate-900">CRM Profissional</h1>
           </div>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-full border border-slate-100">
+              <div className={`w-2 h-2 rounded-full ${user ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                {user ? (user.isAnonymous ? 'Modo Visitante' : 'Sincronizado') : 'Desconectado'}
+              </span>
+            </div>
             {user && !user.isAnonymous && (
               <div className="hidden sm:flex flex-col items-end">
                 <span className="text-sm font-semibold text-slate-900">{user.displayName}</span>
@@ -335,6 +377,20 @@ export default function App() {
           <h3 className="font-heading text-2xl font-semibold text-slate-800 mb-6 flex items-center gap-3 justify-center">
             <PlusCircle className="w-6 h-6 text-blue-600" /> Novo Cadastro
           </h3>
+
+          {feedback && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className={`mb-6 p-4 rounded-xl flex items-center gap-3 ${
+                feedback.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
+              }`}
+            >
+              {feedback.type === 'success' ? <Sparkles className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+              <p className="text-sm font-bold">{feedback.message}</p>
+            </motion.div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">

@@ -36,13 +36,13 @@ service cloud.firestore {
     }
 
     function isValidCliente(data) {
-      return data.nome is string && data.nome.size() > 0 && data.nome.size() < 200 &&
-             data.telefone is string && data.telefone.size() > 0 && data.telefone.size() < 30 &&
-             (!('tamanho' in data) || (data.tamanho is string && data.tamanho.size() < 10)) &&
-             (!('cidade' in data) || (data.cidade is string && data.cidade.size() < 100)) &&
-             (!('comprou' in data) || (data.comprou is string && data.comprou.size() < 500)) &&
-             (!('queria_comprar' in data) || (data.queria_comprar is string && data.queria_comprar.size() < 500)) &&
-             data.canal is string && data.canal.size() > 0 && data.canal.size() < 50 &&
+      return data.nome is string && data.nome.size() > 0 && data.nome.size() < 500 &&
+             data.telefone is string && data.telefone.size() > 0 && data.telefone.size() < 100 &&
+             (!('tamanho' in data) || (data.tamanho is string && data.tamanho.size() < 100)) &&
+             (!('cidade' in data) || (data.cidade is string && data.cidade.size() < 200)) &&
+             (!('comprou' in data) || (data.comprou is string && data.comprou.size() < 1000)) &&
+             (!('queria_comprar' in data) || (data.queria_comprar is string && data.queria_comprar.size() < 1000)) &&
+             data.canal is string && data.canal.size() > 0 && data.canal.size() < 100 &&
              data.comprou_status in ['sim', 'nao'] &&
              data.created_at is timestamp &&
              data.uid == request.auth.uid;
