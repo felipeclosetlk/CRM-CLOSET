@@ -42,7 +42,8 @@ import {
   AlertTriangle,
   BarChart3,
   Edit2,
-  X
+  X,
+  Clipboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
@@ -94,6 +95,168 @@ export default function App() {
   const [searchCity, setSearchCity] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [editingClient, setEditingClient] = useState<Cliente | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importText, setImportText] = useState('');
+
+  // Helper function to extract info from text
+  const extractInfoFromText = (text: string) => {
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    let foundName = '';
+    let foundPhone = '';
+    let foundSize = '';
+    let foundCity = '';
+    let foundProducts: string[] = [];
+    let foundChannel = '';
+    let foundObs = '';
+
+    // Phone Regex - improved to catch more variations
+    const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{2,3}\)?[-.\s]?\d{4,5}[-.\s]?\d{4}/g;
+    const phones = text.match(phoneRegex);
+    if (phones && phones.length > 0) foundPhone = phones[0];
+
+    // Track which lines were "consumed" by specific field detection
+    const consumedLines = new Set<number>();
+
+    // 1. First pass: Explicit labels and specific patterns (Phone, Size, Channel)
+    lines.forEach((line, index) => {
+      const lowerLine = line.toLowerCase();
+      
+      // Explicit Labels
+      if (lowerLine.startsWith('nome:') || lowerLine.startsWith('cliente:')) {
+        foundName = line.split(/nome:|cliente:/i).pop()?.trim() || '';
+        consumedLines.add(index);
+      } 
+      else if (lowerLine.match(/tel:|fone:|whatsapp:|cel:|contato:/i)) {
+        const p = line.match(phoneRegex);
+        if (p) foundPhone = p[0];
+        else {
+          const afterLabel = line.split(/tel:|fone:|whatsapp:|cel:|contato:/i).pop()?.trim();
+          if (afterLabel && afterLabel.length > 7) foundPhone = afterLabel;
+        }
+        consumedLines.add(index);
+      }
+      else if (lowerLine.includes('cidade:') || lowerLine.includes('moro em') || lowerLine.includes('local:') || lowerLine.includes('endereço:') || lowerLine.includes('uf:') || lowerLine.includes('reside em')) {
+        foundCity = line.split(/cidade:|moro em|local:|endereço:|uf:|reside em/i).pop()?.trim() || '';
+        consumedLines.add(index);
+      }
+      else if (lowerLine.includes('canal:') || lowerLine.includes('veio pelo') || lowerLine.includes('origem:') || lowerLine.includes('veio do') || lowerLine.includes('conheceu por')) {
+        const channelVal = line.split(/canal:|veio pelo|origem:|veio do|conheceu por/i).pop()?.trim();
+        const match = ['Loja Física', 'WhatsApp', 'Instagram', 'Facebook', 'Site', 'Indicação'].find(c => 
+          channelVal?.toLowerCase().includes(c.toLowerCase())
+        );
+        if (match) foundChannel = match;
+        consumedLines.add(index);
+      }
+      else if (lowerLine.includes('obs:') || lowerLine.includes('observação:') || lowerLine.includes('nota:') || lowerLine.includes('detalhes:') || lowerLine.includes('comentário:')) {
+        foundObs = line.split(/obs:|observação:|nota:|detalhes:|comentário:/i).pop()?.trim() || '';
+        consumedLines.add(index);
+      }
+
+      // Size detection (even without label)
+      TAMANHOS.forEach(t => {
+        const tLower = t.toLowerCase();
+        // Match exact size or size with common prefixes
+        if (lowerLine === tLower || 
+            lowerLine === `tamanho ${tLower}` || 
+            lowerLine === `tam ${tLower}` ||
+            lowerLine === `tam: ${tLower}` ||
+            lowerLine === `veste ${tLower}` ||
+            lowerLine === `tamanho: ${tLower}`) {
+          foundSize = t;
+          consumedLines.add(index);
+        }
+      });
+    });
+
+    // 2. Second pass: Keywords (Products) and Cities with UF pattern
+    lines.forEach((line, index) => {
+      if (consumedLines.has(index)) return;
+      const lowerLine = line.toLowerCase();
+
+      // Products - improved matching (singular/plural and partial)
+      let foundProductInLine = false;
+      INTERESSES.forEach(p => {
+        const pLower = p.toLowerCase();
+        const pSingular = pLower.endsWith('s') ? pLower.slice(0, -1) : pLower;
+        
+        if (lowerLine.includes(pLower) || (pSingular.length > 3 && lowerLine.includes(pSingular))) {
+          if (!foundProducts.includes(p)) foundProducts.push(p);
+          foundProductInLine = true;
+        }
+      });
+      if (foundProductInLine) consumedLines.add(index);
+
+      // City with UF pattern (e.g. "São Paulo - SP" or "Rio / RJ")
+      if (!foundCity && lowerLine.match(/[-/]\s*[a-z]{2}$/i)) {
+        foundCity = line;
+        consumedLines.add(index);
+      }
+
+      // Size if not found yet
+      if (!foundSize) {
+        TAMANHOS.forEach(t => {
+          const tLower = t.toLowerCase();
+          if (lowerLine.includes(`tamanho ${tLower}`) || 
+              lowerLine.includes(`tam ${tLower}`) ||
+              lowerLine.includes(`veste ${tLower}`)) {
+            foundSize = t;
+            consumedLines.add(index);
+          }
+        });
+      }
+    });
+
+    // 3. Third pass: Name and City detection (the remaining unidentified lines)
+    const remainingLines = lines.map((l, i) => ({ text: l, index: i })).filter(item => !consumedLines.has(item.index));
+    
+    if (remainingLines.length > 0) {
+      // If we don't have a name yet, take the first remaining line as name
+      if (!foundName) {
+        const nameCandidate = remainingLines[0];
+        if (nameCandidate.text.length > 2 && nameCandidate.text.length < 50 && !nameCandidate.text.match(phoneRegex)) {
+          foundName = nameCandidate.text;
+          consumedLines.add(nameCandidate.index);
+          remainingLines.shift(); // Remove it from remaining
+        }
+      }
+      
+      // If we don't have a city yet, and there's another line, it might be the city
+      if (!foundCity && remainingLines.length > 0) {
+        const cityCandidate = remainingLines[0];
+        // If it's not too long and doesn't look like a sentence
+        if (cityCandidate.text.length < 40 && !cityCandidate.text.includes('.')) {
+          foundCity = cityCandidate.text;
+          consumedLines.add(cityCandidate.index);
+        }
+      }
+    }
+
+    return { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs };
+  };
+
+  // Live extraction effect
+  useEffect(() => {
+    if (!isImporting || !importText.trim()) return;
+
+    const timeoutId = setTimeout(() => {
+      const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs } = extractInfoFromText(importText);
+
+      if (foundName || foundPhone || foundSize || foundCity || foundProducts.length > 0 || foundChannel || foundObs) {
+        setFormData(prev => ({
+          ...prev,
+          nome: foundName || prev.nome,
+          telefone: foundPhone || prev.telefone,
+          tamanho: foundSize || prev.tamanho,
+          cidade: foundCity || prev.cidade,
+          comprou: foundProducts.length > 0 ? foundProducts.join(', ') : prev.comprou,
+          queria_comprar: foundObs || prev.queria_comprar,
+          canal: foundChannel || prev.canal
+        }));
+      }
+    }, 400); // Debounce 400ms
+
+    return () => clearTimeout(timeoutId);
+  }, [importText, isImporting]);
 
   const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG'];
   const INTERESSES = ['Regatas', 'Blusas', 'Camisa', 'Vestidos', 'Macaquinhos', 'Conjuntos', 'Saias', 'Calça Formal', 'Calça Jeans'];
@@ -276,6 +439,55 @@ export default function App() {
       queria_comprar: '',
       canal: ''
     });
+  };
+
+  const handleSmartImport = () => {
+    if (!importText.trim()) return;
+
+    const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs } = extractInfoFromText(importText);
+
+    setFormData(prev => ({
+      ...prev,
+      nome: foundName || prev.nome,
+      telefone: foundPhone || prev.telefone,
+      tamanho: foundSize || prev.tamanho,
+      cidade: foundCity || prev.cidade,
+      comprou: foundProducts.length > 0 ? foundProducts.join(', ') : prev.comprou,
+      queria_comprar: foundObs || prev.queria_comprar,
+      canal: foundChannel || prev.canal
+    }));
+
+    setImportText('');
+    setIsImporting(false);
+    setFeedback({ type: 'success', message: 'Importação finalizada com sucesso!' });
+    setTimeout(() => setFeedback(null), 2000);
+  };
+
+  const handlePasteAndExtract = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setImportText(text);
+        const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs } = extractInfoFromText(text);
+        
+        setFormData(prev => ({ 
+          ...prev, 
+          nome: foundName || prev.nome, 
+          telefone: foundPhone || prev.telefone, 
+          tamanho: foundSize || prev.tamanho, 
+          cidade: foundCity || prev.cidade, 
+          comprou: foundProducts.length > 0 ? foundProducts.join(', ') : prev.comprou, 
+          queria_comprar: foundObs || prev.queria_comprar, 
+          canal: foundChannel || prev.canal 
+        }));
+        
+        setFeedback({ type: 'success', message: 'Dados colados e identificados!' });
+        setTimeout(() => setFeedback(null), 2000);
+      }
+    } catch (err) {
+      console.error('Falha ao ler área de transferência:', err);
+      setFeedback({ type: 'error', message: 'Permita o acesso à área de transferência para colar automaticamente.' });
+    }
   };
 
   const toggleStatus = async (client: Cliente) => {
@@ -521,16 +733,73 @@ export default function App() {
               {editingClient ? <Edit2 className="w-7 h-7 text-brand-gold" /> : <PlusCircle className="w-7 h-7 text-brand-gold" />}
               {editingClient ? 'Editar Cadastro' : 'Novo Cadastro'}
             </h3>
-            {editingClient && (
-              <button 
-                onClick={cancelEdit}
-                className="p-2 text-brand-rose/40 hover:text-brand-rose transition-colors"
-                title="Cancelar Edição"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {!editingClient && (
+                <button 
+                  onClick={() => setIsImporting(!isImporting)}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100"
+                >
+                  <Clipboard className="w-4 h-4" /> 
+                  {isImporting ? 'Cancelar' : 'Importar do WhatsApp'}
+                </button>
+              )}
+              {editingClient && (
+                <button 
+                  onClick={cancelEdit}
+                  className="p-2 text-brand-rose/40 hover:text-brand-rose transition-colors"
+                  title="Cancelar Edição"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              )}
+            </div>
           </div>
+
+          {isImporting && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mb-8 p-6 bg-emerald-50/50 rounded-2xl border-2 border-dashed border-emerald-200"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                  Cole ou escreva as informações do cliente:
+                </p>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setImportText('')}
+                    className="flex items-center gap-1 text-[10px] font-bold bg-white text-emerald-600 px-3 py-1 rounded-lg hover:bg-emerald-50 transition-all border border-emerald-200"
+                  >
+                    Limpar
+                  </button>
+                  <button 
+                    onClick={handlePasteAndExtract}
+                    className="flex items-center gap-1 text-[10px] font-bold bg-emerald-500 text-white px-3 py-1 rounded-lg hover:bg-emerald-600 transition-all shadow-sm"
+                  >
+                    <Download className="w-3 h-3" /> Colar e Extrair
+                  </button>
+                </div>
+              </div>
+              <textarea 
+                value={importText}
+                onChange={e => setImportText(e.target.value)}
+                className="w-full h-32 p-4 rounded-xl border border-emerald-200 focus:border-emerald-500 outline-none bg-white text-sm mb-4"
+                placeholder="Ex: Maria Silva&#10;Tel: 11 99999-9999&#10;Cidade: São Paulo&#10;Tamanho: M&#10;Interesse: Vestidos, Saias"
+              />
+              <button 
+                onClick={() => {
+                  handleSmartImport();
+                  setFeedback({ type: 'success', message: 'Importação finalizada!' });
+                }}
+                className="w-full bg-emerald-500 text-white font-bold py-3 rounded-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" /> Finalizar e Fechar Importador
+              </button>
+              <p className="text-[10px] text-emerald-600/60 mt-2 text-center">
+                O sistema identifica automaticamente: Nome, Telefone, Cidade, Tamanho, Produtos e Observações.
+              </p>
+            </motion.div>
+          )}
 
           {feedback && (
             <motion.div 
@@ -614,23 +883,34 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
-                  <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produto de Interesse
+                  <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produtos de Interesse (Selecione vários)
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {INTERESSES.map(int => (
-                    <button
-                      key={int}
-                      type="button"
-                      onClick={() => setFormData({...formData, comprou: int})}
-                      className={`px-3 py-2 rounded-xl text-[11px] font-bold transition-all border uppercase tracking-wider ${
-                        formData.comprou === int 
-                          ? 'gold-button border-transparent' 
-                          : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
-                      }`}
-                    >
-                      {int}
-                    </button>
-                  ))}
+                  {INTERESSES.map(int => {
+                    const isSelected = formData.comprou.split(', ').includes(int);
+                    return (
+                      <button
+                        key={int}
+                        type="button"
+                        onClick={() => {
+                          let current = formData.comprou ? formData.comprou.split(', ') : [];
+                          if (isSelected) {
+                            current = current.filter(item => item !== int);
+                          } else {
+                            current.push(int);
+                          }
+                          setFormData({...formData, comprou: current.join(', ')});
+                        }}
+                        className={`px-3 py-2 rounded-xl text-[11px] font-bold transition-all border uppercase tracking-wider ${
+                          isSelected 
+                            ? 'gold-button border-transparent' 
+                            : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
+                        }`}
+                      >
+                        {int}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-2">
