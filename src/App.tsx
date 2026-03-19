@@ -40,7 +40,9 @@ import {
   LogIn,
   Loader2,
   AlertTriangle,
-  BarChart3
+  BarChart3,
+  Edit2,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
@@ -91,7 +93,10 @@ export default function App() {
   const [searchSize, setSearchSize] = useState('');
   const [searchCity, setSearchCity] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-  const [logoError, setLogoError] = useState(false);
+  const [editingClient, setEditingClient] = useState<Cliente | null>(null);
+
+  const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG'];
+  const INTERESSES = ['Regatas', 'Blusas', 'Camisa', 'Vestidos', 'Macaquinhos', 'Conjuntos', 'Saias', 'Calça Formal', 'Calça Jeans'];
 
   // Form state
   const [formData, setFormData] = useState({
@@ -197,17 +202,26 @@ export default function App() {
     try {
       const effectiveUid = user?.uid || getGuestId();
       
-      const newClient: Omit<Cliente, 'id'> = {
-        ...formData,
-        comprou_status: 'nao',
-        created_at: Timestamp.now(),
-        uid: effectiveUid
-      };
-
-      console.log('Salvando cliente:', newClient);
-      await addDoc(collection(db, 'clientes'), newClient);
+      if (editingClient?.id) {
+        // Update existing client
+        const updatedClient = {
+          ...formData,
+          uid: effectiveUid
+        };
+        await updateDoc(doc(db, 'clientes', editingClient.id), updatedClient);
+        setFeedback({ type: 'success', message: 'Cadastro atualizado com sucesso!' });
+      } else {
+        // Create new client
+        const newClient: Omit<Cliente, 'id'> = {
+          ...formData,
+          comprou_status: 'nao',
+          created_at: Timestamp.now(),
+          uid: effectiveUid
+        };
+        await addDoc(collection(db, 'clientes'), newClient);
+        setFeedback({ type: 'success', message: 'Cadastro realizado com sucesso!' });
+      }
       
-      setFeedback({ type: 'success', message: 'Cadastro realizado com sucesso!' });
       setFormData({
         nome: '',
         telefone: '',
@@ -217,6 +231,7 @@ export default function App() {
         queria_comprar: '',
         canal: ''
       });
+      setEditingClient(null);
       
       // Clear success message after 3 seconds
       setTimeout(() => setFeedback(null), 3000);
@@ -231,10 +246,36 @@ export default function App() {
       }
       
       setFeedback({ type: 'error', message });
-      // Don't throw here so we can show the UI message
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleEdit = (client: Cliente) => {
+    setEditingClient(client);
+    setFormData({
+      nome: client.nome,
+      telefone: client.telefone,
+      tamanho: client.tamanho || '',
+      cidade: client.cidade || '',
+      comprou: client.comprou || '',
+      queria_comprar: client.queria_comprar || '',
+      canal: client.canal || ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingClient(null);
+    setFormData({
+      nome: '',
+      telefone: '',
+      tamanho: '',
+      cidade: '',
+      comprou: '',
+      queria_comprar: '',
+      canal: ''
+    });
   };
 
   const toggleStatus = async (client: Cliente) => {
@@ -268,33 +309,19 @@ export default function App() {
     });
   }, [clients, searchTerm, searchSize, searchCity]);
 
-  const exportPDF = () => {
+  const exportPDF = async () => {
     const doc = new jsPDF();
     const today = format(new Date(), 'dd/MM/yyyy');
-    const logoUrl = 'https://storage.googleapis.com/static.antigravity.ai/as/67db1857640f06002c019d45/d5b5976b-36f7-497a-9774-8848a27271e8.png';
-    
-    // Add Logo to PDF
-    try {
-      if (!logoError) {
-        doc.addImage(logoUrl, 'PNG', 10, 10, 20, 20);
-      } else {
-        // Just use fallback if there's a logo error
-        drawFallbackLogo(doc);
-      }
-    } catch (error) {
-      console.warn('Could not add logo to PDF, using fallback:', error);
-      drawFallbackLogo(doc);
-    }
     
     doc.setFontSize(20);
     doc.setTextColor(142, 93, 90); // #8E5D5A (Brand Rose)
-    doc.text('CLOSET LK - GESTÃO DE CLIENTES', 35, 20);
+    doc.text('CRM - GESTÃO DE CLIENTES', 35, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(197, 160, 89); // #C5A059 (Brand Gold)
-    doc.text(`Relatório de Boutique gerado em: ${today}`, 35, 27);
+    doc.text(`Relatório gerado em: ${today}`, 35, 27);
 
-    const tableData = clients.map(c => [
+    const tableData = filteredClients.map(c => [
       c.nome,
       c.telefone,
       c.tamanho || '-',
@@ -308,7 +335,7 @@ export default function App() {
     autoTable(doc, {
       head: [['Nome', 'Telefone', 'Tam', 'Cidade', 'Interesse', 'Canal', 'Status', 'Data']],
       body: tableData,
-      startY: 30,
+      startY: 35,
       styles: { fontSize: 8 },
       headStyles: { fillColor: [142, 93, 90] }, // #8E5D5A (Brand Rose)
     });
@@ -316,38 +343,13 @@ export default function App() {
     doc.save(`crm_clientes_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
-  // Helper to draw fallback logo in PDF
-  const drawFallbackLogo = (pdfDoc: jsPDF) => {
-    pdfDoc.setDrawColor(142, 93, 90); // Brand Rose
-    pdfDoc.setLineWidth(0.5);
-    pdfDoc.circle(20, 20, 10, 'S');
-    pdfDoc.setFontSize(12);
-    pdfDoc.setTextColor(142, 93, 90);
-    pdfDoc.text('LK', 17, 21);
-    pdfDoc.setFontSize(6);
-    pdfDoc.setTextColor(197, 160, 89); // Brand Gold
-    pdfDoc.text('CLOSET', 16, 25);
-  };
-
-  const generateReportPDF = () => {
+  const generateReportPDF = async () => {
     const doc = new jsPDF();
     const today = format(new Date(), 'dd/MM/yyyy');
-    const logoUrl = 'https://storage.googleapis.com/static.antigravity.ai/as/67db1857640f06002c019d45/d5b5976b-36f7-497a-9774-8848a27271e8.png';
     
-    // Header
-    try {
-      if (!logoError) {
-        doc.addImage(logoUrl, 'PNG', 10, 10, 20, 20);
-      } else {
-        drawFallbackLogo(doc);
-      }
-    } catch (e) {
-      drawFallbackLogo(doc);
-    }
-
     doc.setFontSize(20);
     doc.setTextColor(142, 93, 90);
-    doc.text('RELATÓRIO ANALÍTICO - CLOSET LK', 35, 20);
+    doc.text('RELATÓRIO ANALÍTICO - CRM', 35, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(197, 160, 89);
@@ -433,21 +435,15 @@ export default function App() {
       headStyles: { fillColor: [197, 160, 89] },
     });
 
-    doc.save(`relatorio_closet_lk_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    doc.save(`relatorio_crm_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-brand-blush">
         <div className="text-center">
-          <div className="w-24 h-24 rounded-full bg-white border-2 border-brand-gold/20 shadow-sm flex items-center justify-center mx-auto mb-6">
-            <div className="flex flex-col items-center justify-center">
-              <span className="font-serif text-brand-rose font-bold text-3xl leading-none">LK</span>
-              <span className="text-[8px] text-brand-gold font-bold tracking-[0.3em] uppercase mt-1">Closet</span>
-            </div>
-          </div>
           <Loader2 className="w-8 h-8 text-brand-gold animate-spin mx-auto mb-4" />
-          <p className="text-brand-rose font-serif text-xl font-medium tracking-widest uppercase italic">CLOSET LK</p>
+          <p className="text-brand-rose font-display text-3xl font-bold tracking-widest uppercase mb-2">CRM</p>
           <p className="text-brand-rose/60 text-sm mt-2">Carregando sua boutique...</p>
         </div>
       </div>
@@ -462,29 +458,8 @@ export default function App() {
       <header className="glass-effect sticky top-0 z-50 px-6 py-4 border-b border-white/30">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-brand-gold/20 bg-white shadow-sm flex items-center justify-center">
-              {!logoError ? (
-                <img 
-                  src="https://storage.googleapis.com/static.antigravity.ai/as/67db1857640f06002c019d45/d5b5976b-36f7-497a-9774-8848a27271e8.png" 
-                  alt="CLOSET LK Logo" 
-                  className="w-full h-full object-contain"
-                  referrerPolicy="no-referrer"
-                  crossOrigin="anonymous"
-                  onError={() => {
-                    setLogoError(true);
-                    console.error('Logo failed to load, using text fallback');
-                  }}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center">
-                  <span className="font-serif text-brand-rose font-bold text-lg leading-none">LK</span>
-                  <span className="text-[6px] text-brand-gold font-bold tracking-widest uppercase">Closet</span>
-                </div>
-              )}
-            </div>
             <div className="flex flex-col">
-              <h1 className="font-serif text-2xl font-bold text-brand-rose tracking-[0.2em] uppercase leading-none">CLOSET LK</h1>
-              <span className="text-[10px] text-brand-gold font-bold tracking-[0.3em] uppercase mt-1">Boutique CRM</span>
+              <h1 className="font-display text-2xl font-extrabold text-brand-rose tracking-[0.2em] uppercase leading-none">CRM</h1>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -527,11 +502,11 @@ export default function App() {
           <motion.h2 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="font-serif text-4xl font-bold text-brand-rose mb-2 tracking-tight"
+            className="font-display text-4xl font-extrabold text-brand-rose mb-2 tracking-tight"
           >
             GESTÃO DE CLIENTES
           </motion.h2>
-          <p className="text-brand-rose/60 text-lg italic font-serif">Acompanhamento Boutique & CRM</p>
+          <p className="text-brand-rose/60 text-lg italic font-display">Acompanhamento & CRM</p>
           <div className="w-20 h-1 bg-brand-gold mx-auto mt-4 rounded-full"></div>
         </div>
 
@@ -541,9 +516,21 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
           className="glass-effect rounded-3xl shadow-xl p-8 mb-12 border border-white/50"
         >
-          <h3 className="font-serif text-3xl font-semibold text-brand-rose mb-8 flex items-center gap-3 justify-center tracking-tight">
-            <PlusCircle className="w-7 h-7 text-brand-gold" /> Novo Cadastro
-          </h3>
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="font-display text-3xl font-bold text-brand-rose flex items-center gap-3 tracking-tight">
+              {editingClient ? <Edit2 className="w-7 h-7 text-brand-gold" /> : <PlusCircle className="w-7 h-7 text-brand-gold" />}
+              {editingClient ? 'Editar Cadastro' : 'Novo Cadastro'}
+            </h3>
+            {editingClient && (
+              <button 
+                onClick={cancelEdit}
+                className="p-2 text-brand-rose/40 hover:text-brand-rose transition-colors"
+                title="Cancelar Edição"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            )}
+          </div>
 
           {feedback && (
             <motion.div 
@@ -593,13 +580,22 @@ export default function App() {
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
                   <Ruler className="w-4 h-4 text-brand-gold" /> Tamanho / Referência
                 </label>
-                <input 
-                  type="text"
-                  value={formData.tamanho}
-                  onChange={e => setFormData({...formData, tamanho: e.target.value})}
-                  className="w-full px-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
-                  placeholder="Ex: M ou 42"
-                />
+                <div className="flex flex-wrap gap-2">
+                  {TAMANHOS.map(tam => (
+                    <button
+                      key={tam}
+                      type="button"
+                      onClick={() => setFormData({...formData, tamanho: tam})}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
+                        formData.tamanho === tam 
+                          ? 'gold-button border-transparent' 
+                          : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
+                      }`}
+                    >
+                      {tam}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
@@ -620,13 +616,22 @@ export default function App() {
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
                   <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produto de Interesse
                 </label>
-                <input 
-                  type="text" 
-                  value={formData.comprou}
-                  onChange={e => setFormData({...formData, comprou: e.target.value})}
-                  className="w-full px-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
-                  placeholder="O que o cliente comprou ou busca"
-                />
+                <div className="flex flex-wrap gap-2">
+                  {INTERESSES.map(int => (
+                    <button
+                      key={int}
+                      type="button"
+                      onClick={() => setFormData({...formData, comprou: int})}
+                      className={`px-3 py-2 rounded-xl text-[11px] font-bold transition-all border uppercase tracking-wider ${
+                        formData.comprou === int 
+                          ? 'gold-button border-transparent' 
+                          : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
+                      }`}
+                    >
+                      {int}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
@@ -668,8 +673,8 @@ export default function App() {
               disabled={isSubmitting}
               className="w-full gold-button font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <PlusCircle className="w-5 h-5" />}
-              Salvar Cadastro
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : (editingClient ? <Edit2 className="w-5 h-5" /> : <PlusCircle className="w-5 h-5" />)}
+              {editingClient ? 'Atualizar Cadastro' : 'Salvar Cadastro'}
             </button>
           </form>
         </motion.div>
@@ -751,7 +756,7 @@ export default function App() {
                           {client.nome.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <h4 className="font-serif text-xl font-bold text-brand-rose">{client.nome}</h4>
+                          <h4 className="font-display text-xl font-bold text-brand-rose">{client.nome}</h4>
                           <p className="text-brand-rose/60 flex items-center gap-1">
                             <Phone className="w-4 h-4 text-brand-gold" /> {client.telefone}
                           </p>
@@ -805,6 +810,13 @@ export default function App() {
                         {client.comprou_status === 'sim' ? 'FINALIZADO' : 'EM ABERTO'}
                       </button>
                       
+                      <button 
+                        onClick={() => handleEdit(client)}
+                        className="w-full py-2 bg-white text-brand-rose/60 hover:text-brand-rose hover:bg-brand-blush rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-brand-rose/10"
+                      >
+                        <Edit2 className="w-4 h-4" /> Editar
+                      </button>
+
                       <a 
                         href={`https://wa.me/${client.telefone.replace(/\D/g, '')}`} 
                         target="_blank" 
@@ -831,7 +843,7 @@ export default function App() {
                 className="text-center py-20 bg-white/30 rounded-3xl border-2 border-dashed border-brand-gold/20"
               >
                 <Users className="w-16 h-16 text-brand-gold/20 mx-auto mb-4" />
-                <h3 className="font-serif text-2xl text-brand-rose mb-2">Nenhum registro encontrado</h3>
+                <h3 className="font-display text-2xl font-bold text-brand-rose mb-2">Nenhum registro encontrado</h3>
                 <p className="text-brand-rose/40">Comece cadastrando seu primeiro cliente acima.</p>
               </motion.div>
             )}
