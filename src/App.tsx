@@ -4,6 +4,7 @@ import {
   db, 
   googleProvider, 
   signInWithPopup, 
+  signInAnonymously,
   signOut, 
   onAuthStateChanged, 
   collection, 
@@ -91,9 +92,17 @@ export default function App() {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        try {
+          await signInAnonymously(auth);
+        } catch (error) {
+          console.error('Anonymous login error:', error);
+        }
+      } else {
+        setUser(user);
+        setLoading(false);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -236,71 +245,17 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center gradient-rose">
-        <Loader2 className="w-12 h-12 text-rose-500 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -left-24 w-96 h-96 bg-blue-100 rounded-full blur-3xl opacity-50" />
-          <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-indigo-100 rounded-full blur-3xl opacity-50" />
+      <div className="h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
+          <p className="text-slate-500 font-medium">Iniciando CRM Profissional...</p>
         </div>
-        
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-lg w-full border border-slate-200 relative z-10"
-        >
-          <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200">
-            <Users className="w-10 h-10 text-white" />
-          </div>
-          
-          <h1 className="text-4xl font-bold mb-2 text-slate-900 tracking-tight">
-            CRM Profissional
-          </h1>
-          <p className="text-slate-500 mb-8 text-lg">Sistema Inteligente de Gestão de Clientes</p>
-          
-          <div className="space-y-4 mb-10 text-left">
-            <div className="flex items-center gap-3 text-slate-600">
-              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <PlusCircle className="w-4 h-4 text-blue-600" />
-              </div>
-              <span>Cadastro rápido de leads e clientes</span>
-            </div>
-            <div className="flex items-center gap-3 text-slate-600">
-              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-rose-300" />
-                <Search className="w-4 h-4 text-blue-600" />
-              </div>
-              <span>Busca avançada e filtros inteligentes</span>
-            </div>
-            <div className="flex items-center gap-3 text-slate-600">
-              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <Download className="w-4 h-4 text-blue-600" />
-              </div>
-              <span>Exportação de relatórios em PDF</span>
-            </div>
-          </div>
-
-          <button 
-            onClick={handleLogin}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-2xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-blue-100 transform hover:-translate-y-1"
-          >
-            <LogIn className="w-6 h-6" />
-            Acessar Painel CRM
-          </button>
-          
-          <p className="mt-6 text-xs text-slate-400">
-            Ao entrar, você concorda com os termos de uso e privacidade.
-          </p>
-        </motion.div>
       </div>
     );
   }
+
+  // Removed the login gate as requested by user.
+  // The app now auto-logs in anonymously if no user is present.
 
   return (
     <div className="min-h-screen gradient-rose pb-20">
@@ -313,17 +268,29 @@ export default function App() {
             <h1 className="text-xl font-bold text-slate-900">CRM Profissional</h1>
           </div>
           <div className="flex items-center gap-4">
-            <div className="hidden sm:flex flex-col items-end">
-              <span className="text-sm font-semibold text-rose-900">{user.displayName}</span>
-              <span className="text-xs text-rose-400">{user.email}</span>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="p-2 text-rose-400 hover:text-rose-600 transition-colors"
-              title="Sair"
-            >
-              <LogOut className="w-6 h-6" />
-            </button>
+            {user && !user.isAnonymous && (
+              <div className="hidden sm:flex flex-col items-end">
+                <span className="text-sm font-semibold text-slate-900">{user.displayName}</span>
+                <span className="text-xs text-slate-400">{user.email}</span>
+              </div>
+            )}
+            {user && !user.isAnonymous ? (
+              <button 
+                onClick={handleLogout}
+                className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                title="Sair"
+              >
+                <LogOut className="w-6 h-6" />
+              </button>
+            ) : (
+              <button 
+                onClick={handleLogin}
+                className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                <LogIn className="w-5 h-5" />
+                Entrar
+              </button>
+            )}
           </div>
         </div>
       </header>
