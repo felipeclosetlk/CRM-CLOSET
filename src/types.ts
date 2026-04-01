@@ -1,5 +1,12 @@
 import { Timestamp } from 'firebase/firestore';
 
+export interface Compra {
+  id: string;
+  data: Timestamp;
+  valor: number;
+  descricao?: string;
+}
+
 export interface Cliente {
   id?: string;
   nome: string;
@@ -14,6 +21,9 @@ export interface Cliente {
   posicao?: number;
   created_at: Timestamp;
   uid: string;
+  compras?: Compra[];
+  total_gasto?: number;
+  ultima_compra?: Timestamp;
 }
 
 export enum OperationType {

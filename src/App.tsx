@@ -112,7 +112,174 @@ const getGuestId = () => {
 
 const SECTORES_CRM = ['LEAD FRIO', 'LEAD MORNO', 'LEAD QUENTE', 'EM ATENDIMENTO', 'FINALIZADO'] as const;
 
-function KanbanCard({ client }: { client: Cliente, key?: string }) {
+function PurchasesModal({ client, onClose }: { client: Cliente, onClose: () => void }) {
+  const [valor, setValor] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const [data, setData] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleAddPurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!client.id || !valor) return;
+
+    setIsSaving(true);
+    try {
+      const numValor = parseFloat(valor.replace(',', '.'));
+      const newCompra = {
+        id: Math.random().toString(36).substring(2, 11),
+        data: Timestamp.fromDate(new Date(data + 'T12:00:00')),
+        valor: numValor,
+        descricao
+      };
+
+      const compras = client.compras ? [...client.compras, newCompra] : [newCompra];
+      
+      // Calculate total
+      const total_gasto = compras.reduce((acc, curr) => acc + curr.valor, 0);
+      
+      // Find latest date
+      const ultima_compra = compras.reduce((latest, curr) => {
+        return curr.data.toMillis() > latest.toMillis() ? curr.data : latest;
+      }, compras[0].data);
+
+      await updateDoc(doc(db, 'clientes', client.id), {
+        compras,
+        total_gasto,
+        ultima_compra
+      });
+
+      setValor('');
+      setDescricao('');
+      setData(format(new Date(), 'yyyy-MM-dd'));
+    } catch (error) {
+      console.error('Erro ao adicionar compra:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeletePurchase = async (compraId: string) => {
+    if (!client.id || !client.compras) return;
+    if (!window.confirm('Excluir esta compra?')) return;
+
+    try {
+      const compras = client.compras.filter(c => c.id !== compraId);
+      const total_gasto = compras.reduce((acc, curr) => acc + curr.valor, 0);
+      const ultima_compra = compras.length > 0 
+        ? compras.reduce((latest, curr) => curr.data.toMillis() > latest.toMillis() ? curr.data : latest, compras[0].data)
+        : null;
+
+      await updateDoc(doc(db, 'clientes', client.id), {
+        compras,
+        total_gasto,
+        ultima_compra
+      });
+    } catch (error) {
+      console.error('Erro ao excluir compra:', error);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+        <div className="p-6 border-b border-brand-rose/10 flex items-center justify-between bg-brand-blush/30">
+          <div>
+            <h2 className="text-2xl font-display font-bold text-brand-rose">Compras - {client.nome}</h2>
+            <p className="text-sm text-brand-rose/60">
+              Total Gasto: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(client.total_gasto || 0)}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors text-brand-rose/40 hover:text-brand-rose">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col md:flex-row gap-8">
+          {/* Form */}
+          <div className="flex-1">
+            <h3 className="font-bold text-brand-rose mb-4 flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-brand-gold" /> Nova Compra
+            </h3>
+            <form onSubmit={handleAddPurchase} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-brand-rose/60 uppercase tracking-wider mb-1">Data</label>
+                <input
+                  type="date"
+                  required
+                  value={data}
+                  onChange={e => setData(e.target.value)}
+                  className="w-full bg-brand-rose/5 border border-brand-rose/10 rounded-xl px-4 py-3 text-brand-rose focus:outline-none focus:ring-2 focus:ring-brand-gold/50 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-brand-rose/60 uppercase tracking-wider mb-1">Valor (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={valor}
+                  onChange={e => setValor(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-brand-rose/5 border border-brand-rose/10 rounded-xl px-4 py-3 text-brand-rose focus:outline-none focus:ring-2 focus:ring-brand-gold/50 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-brand-rose/60 uppercase tracking-wider mb-1">Descrição / Itens</label>
+                <input
+                  type="text"
+                  value={descricao}
+                  onChange={e => setDescricao(e.target.value)}
+                  placeholder="Ex: 2 Vestidos M"
+                  className="w-full bg-brand-rose/5 border border-brand-rose/10 rounded-xl px-4 py-3 text-brand-rose focus:outline-none focus:ring-2 focus:ring-brand-gold/50 transition-all"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="w-full gold-button font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Adicionar Compra'}
+              </button>
+            </form>
+          </div>
+
+          {/* List */}
+          <div className="flex-1 border-t md:border-t-0 md:border-l border-brand-rose/10 pt-6 md:pt-0 md:pl-6">
+            <h3 className="font-bold text-brand-rose mb-4 flex items-center gap-2">
+              <ShoppingBag className="w-5 h-5 text-brand-gold" /> Histórico
+            </h3>
+            <div className="space-y-3">
+              {client.compras && client.compras.length > 0 ? (
+                [...client.compras].sort((a, b) => b.data.toMillis() - a.data.toMillis()).map(compra => (
+                  <div key={compra.id} className="bg-white border border-brand-rose/10 p-3 rounded-xl flex items-center justify-between group hover:border-brand-gold/50 transition-colors">
+                    <div>
+                      <p className="font-bold text-brand-rose text-sm">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(compra.valor)}
+                      </p>
+                      <p className="text-xs text-brand-rose/60">
+                        {format(compra.data.toDate(), 'dd/MM/yyyy')} {compra.descricao && `- ${compra.descricao}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeletePurchase(compra.id)}
+                      className="text-brand-rose/20 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-brand-rose/40 text-center py-8">Nenhuma compra registrada.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KanbanCard({ client, onOpenPurchases }: { client: Cliente, onOpenPurchases: (client: Cliente) => void, key?: string }) {
   const {
     attributes,
     listeners,
@@ -147,20 +314,42 @@ function KanbanCard({ client }: { client: Cliente, key?: string }) {
           <Phone className="w-3 h-3" />
           {client.telefone}
         </div>
-        <button
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            const cleaned = client.telefone.replace(/\D/g, '');
-            const waNumber = cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
-            window.open(`https://wa.me/${waNumber}`, '_blank');
-          }}
-          className="p-1.5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-sm"
-          title="Chamar no WhatsApp"
-        >
-          <MessageCircle className="w-3 h-3" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenPurchases(client);
+            }}
+            className="p-1.5 bg-brand-gold text-white rounded-full hover:bg-brand-gold-light transition-colors shadow-sm"
+            title="Gerenciar Compras"
+          >
+            <ShoppingBag className="w-3 h-3" />
+          </button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              const cleaned = client.telefone.replace(/\D/g, '');
+              const waNumber = cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
+              window.open(`https://wa.me/${waNumber}`, '_blank');
+            }}
+            className="p-1.5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-sm"
+            title="Chamar no WhatsApp"
+          >
+            <MessageCircle className="w-3 h-3" />
+          </button>
+        </div>
       </div>
+      
+      {(client.total_gasto !== undefined && client.total_gasto > 0) && (
+        <div className="mb-2 text-[10px] font-bold text-brand-rose/80 bg-brand-rose/5 p-1.5 rounded-lg flex justify-between items-center">
+          <span>Total: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(client.total_gasto)}</span>
+          {client.ultima_compra && (
+            <span className="text-brand-rose/50">{format(client.ultima_compra.toDate(), 'dd/MM/yy')}</span>
+          )}
+        </div>
+      )}
       {client.comprou && (
         <div className="flex flex-wrap gap-1">
           {client.comprou.split(', ').slice(0, 2).map((p, i) => (
@@ -177,7 +366,7 @@ function KanbanCard({ client }: { client: Cliente, key?: string }) {
   );
 }
 
-function KanbanColumn({ status, clients }: { status: string, clients: Cliente[], key?: string }) {
+function KanbanColumn({ status, clients, onOpenPurchases }: { status: string, clients: Cliente[], onOpenPurchases: (client: Cliente) => void, key?: string }) {
   const { setNodeRef } = useDroppable({ id: status });
 
   return (
@@ -193,7 +382,7 @@ function KanbanColumn({ status, clients }: { status: string, clients: Cliente[],
       <div ref={setNodeRef} className="flex-1 overflow-y-auto custom-scrollbar pr-1 min-h-[200px]">
         <SortableContext items={clients.map(c => c.id!)} strategy={verticalListSortingStrategy}>
           {clients.map(client => (
-            <KanbanCard key={client.id} client={client} />
+            <KanbanCard key={client.id} client={client} onOpenPurchases={onOpenPurchases} />
           ))}
         </SortableContext>
       </div>
@@ -215,6 +404,7 @@ export default function App() {
   const [importText, setImportText] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [purchasesModalClient, setPurchasesModalClient] = useState<Cliente | null>(null);
 
   // Helper function to extract info from text
   const extractInfoFromText = (text: string) => {
@@ -1328,6 +1518,7 @@ export default function App() {
                       key={sector} 
                       status={sector}
                       clients={filteredClients.filter(c => (!c.status_crm && sector === 'LEAD FRIO') || c.status_crm === sector)}
+                      onOpenPurchases={setPurchasesModalClient}
                     />
                   ))}
                 </div>
@@ -1398,6 +1589,13 @@ export default function App() {
                         <span className="flex items-center gap-1 bg-white/50 px-2 py-1 rounded-full border border-brand-gold/10">
                           <Calendar className="w-3 h-3 text-brand-gold" /> {format(client.created_at.toDate(), 'dd/MM/yyyy')}
                         </span>
+                        {(client.total_gasto !== undefined && client.total_gasto > 0) && (
+                          <span className="flex items-center gap-1 bg-brand-gold/10 text-brand-gold px-2 py-1 rounded-full border border-brand-gold/20 font-bold">
+                            <ShoppingBag className="w-3 h-3" /> 
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(client.total_gasto)}
+                            {client.ultima_compra && ` (Última: ${format(client.ultima_compra.toDate(), 'dd/MM/yy')})`}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1414,6 +1612,13 @@ export default function App() {
                         {client.comprou_status === 'sim' ? 'FINALIZADO' : 'EM ABERTO'}
                       </button>
                       
+                      <button 
+                        onClick={() => setPurchasesModalClient(client)}
+                        className="w-full py-2 bg-brand-gold/10 text-brand-gold hover:bg-brand-gold hover:text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-brand-gold/20"
+                      >
+                        <ShoppingBag className="w-4 h-4" /> Compras
+                      </button>
+
                       <button 
                         onClick={() => handleEdit(client)}
                         className="w-full py-2 bg-white text-brand-rose/60 hover:text-brand-rose hover:bg-brand-blush rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-brand-rose/10"
@@ -1455,6 +1660,14 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* Purchases Modal */}
+      {purchasesModalClient && (
+        <PurchasesModal 
+          client={purchasesModalClient} 
+          onClose={() => setPurchasesModalClient(null)} 
+        />
+      )}
 
       {/* Limit Warning */}
       {clients.length >= 999 && (
