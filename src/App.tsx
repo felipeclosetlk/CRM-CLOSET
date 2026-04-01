@@ -17,7 +17,9 @@ import {
   where, 
   orderBy, 
   Timestamp,
-  User
+  User,
+  linkWithPopup,
+  getDocs
 } from './firebase';
 import { Cliente, OperationType, FirestoreErrorInfo } from './types';
 import { 
@@ -462,7 +464,57 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const currentUid = auth.currentUser?.uid;
+      const guestId = localStorage.getItem('crm_guest_id');
+      const isAnonymous = auth.currentUser?.isAnonymous;
+      
+      let finalUser: User | null = null;
+
+      if (isAnonymous) {
+        try {
+          const result = await linkWithPopup(auth.currentUser, googleProvider);
+          finalUser = result.user;
+        } catch (linkError: any) {
+          if (linkError.code === 'auth/credential-already-in-use') {
+            const result = await signInWithPopup(auth, googleProvider);
+            finalUser = result.user;
+            // Migrate data from anonymous UID to Google UID
+            if (currentUid && finalUser.uid !== currentUid) {
+              try {
+                const q = query(collection(db, 'clientes'), where('uid', '==', currentUid));
+                const snapshot = await getDocs(q);
+                const updates = snapshot.docs.map(docSnapshot => 
+                  updateDoc(doc(db, 'clientes', docSnapshot.id), { uid: finalUser!.uid })
+                );
+                await Promise.all(updates);
+              } catch (migrationError) {
+                console.error('Error migrating data:', migrationError);
+              }
+            }
+          } else {
+            throw linkError;
+          }
+        }
+      } else {
+        const result = await signInWithPopup(auth, googleProvider);
+        finalUser = result.user;
+      }
+
+      // Also migrate any guestId data
+      if (finalUser && guestId && finalUser.uid !== guestId) {
+        try {
+          const q = query(collection(db, 'clientes'), where('uid', '==', guestId));
+          const snapshot = await getDocs(q);
+          if (!snapshot.empty) {
+            const updates = snapshot.docs.map(docSnapshot => 
+              updateDoc(doc(db, 'clientes', docSnapshot.id), { uid: finalUser!.uid })
+            );
+            await Promise.all(updates);
+          }
+        } catch (migrationError) {
+          console.error('Error migrating guest data:', migrationError);
+        }
+      }
     } catch (error) {
       console.error('Login error:', error);
     }
