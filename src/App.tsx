@@ -3,8 +3,7 @@ import {
   auth, 
   db, 
   googleProvider, 
-  signInWithPopup, 
-  signInAnonymously,
+  signInWithPopup,
   signOut, 
   onAuthStateChanged, 
   collection, 
@@ -18,7 +17,6 @@ import {
   orderBy, 
   Timestamp,
   User,
-  linkWithPopup,
   getDocs
 } from './firebase';
 import { Cliente, OperationType, FirestoreErrorInfo } from './types';
@@ -581,8 +579,6 @@ export default function App() {
   });
 
   useEffect(() => {
-    let isSigningIn = false;
-    
     // Safety timeout: if auth hasn't resolved in 6 seconds, stop loading
     const timeoutId = setTimeout(() => {
       setLoading(false);
@@ -592,22 +588,11 @@ export default function App() {
       console.log('Auth state changed:', user ? `User ${user.uid} (${user.isAnonymous ? 'Anonymous' : 'Google'})` : 'No user');
       if (user) {
         setUser(user);
-        setLoading(false);
-        clearTimeout(timeoutId);
-      } else if (!isSigningIn) {
-        isSigningIn = true;
-        try {
-          console.log('Attempting anonymous sign in...');
-          await signInAnonymously(auth);
-        } catch (error) {
-          console.error('Anonymous login error:', error);
-          setLoading(false);
-          clearTimeout(timeoutId);
-        }
       } else {
-        setLoading(false);
-        clearTimeout(timeoutId);
+        setUser(null);
       }
+      setLoading(false);
+      clearTimeout(timeoutId);
     });
     return () => {
       unsubscribe();
@@ -654,50 +639,20 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      const currentUid = auth.currentUser?.uid;
       const guestId = localStorage.getItem('crm_guest_id');
-      const isAnonymous = auth.currentUser?.isAnonymous;
+      const isIframe = window !== window.top;
       
-      let finalUser: User | null = null;
+      const result = await signInWithPopup(auth, googleProvider);
+      const finalUser = result.user;
 
-      if (isAnonymous) {
-        try {
-          const result = await linkWithPopup(auth.currentUser, googleProvider);
-          finalUser = result.user;
-        } catch (linkError: any) {
-          if (linkError.code === 'auth/credential-already-in-use') {
-            const result = await signInWithPopup(auth, googleProvider);
-            finalUser = result.user;
-            // Migrate data from anonymous UID to Google UID
-            if (currentUid && finalUser.uid !== currentUid) {
-              try {
-                const q = query(collection(db, 'clientes'), where('uid', '==', currentUid));
-                const snapshot = await getDocs(q);
-                const updates = snapshot.docs.map(docSnapshot => 
-                  updateDoc(doc(db, 'clientes', docSnapshot.id), { uid: finalUser!.uid })
-                );
-                await Promise.all(updates);
-              } catch (migrationError) {
-                console.error('Error migrating data:', migrationError);
-              }
-            }
-          } else {
-            throw linkError;
-          }
-        }
-      } else {
-        const result = await signInWithPopup(auth, googleProvider);
-        finalUser = result.user;
-      }
-
-      // Also migrate any guestId data
+      // Migrate any guestId data
       if (finalUser && guestId && finalUser.uid !== guestId) {
         try {
           const q = query(collection(db, 'clientes'), where('uid', '==', guestId));
           const snapshot = await getDocs(q);
           if (!snapshot.empty) {
             const updates = snapshot.docs.map(docSnapshot => 
-              updateDoc(doc(db, 'clientes', docSnapshot.id), { uid: finalUser!.uid })
+              updateDoc(doc(db, 'clientes', docSnapshot.id), { uid: finalUser.uid })
             );
             await Promise.all(updates);
           }
@@ -705,8 +660,18 @@ export default function App() {
           console.error('Error migrating guest data:', migrationError);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      const isIframe = window !== window.top;
+      
+      if (error.code === 'auth/popup-blocked' || isIframe) {
+        setFeedback({ 
+          type: 'error', 
+          message: 'O login foi bloqueado. Por favor, clique no botão superior direito "Abrir em uma nova aba" ou acesse o aplicativo diretamente pelo seu navegador.' 
+        });
+      } else {
+        setFeedback({ type: 'error', message: 'Erro ao fazer login. Tente abrir o aplicativo em uma nova aba do navegador.' });
+      }
     }
   };
 
