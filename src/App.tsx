@@ -45,7 +45,8 @@ import {
   X,
   Clipboard,
   LayoutDashboard,
-  List
+  List,
+  ExternalLink
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -397,6 +398,7 @@ export default function App() {
   const [searchSize, setSearchSize] = useState('');
   const [searchCity, setSearchCity] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [loginBlocked, setLoginBlocked] = useState(false);
   const [editingClient, setEditingClient] = useState<Cliente | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importText, setImportText] = useState('');
@@ -638,9 +640,15 @@ export default function App() {
   }, [user]);
 
   const handleLogin = async () => {
+    const isIframe = window !== window.top;
+    
+    if (isIframe) {
+      setLoginBlocked(true);
+      return;
+    }
+
     try {
       const guestId = localStorage.getItem('crm_guest_id');
-      const isIframe = window !== window.top;
       
       const result = await signInWithPopup(auth, googleProvider);
       const finalUser = result.user;
@@ -662,15 +670,11 @@ export default function App() {
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      const isIframe = window !== window.top;
       
-      if (error.code === 'auth/popup-blocked' || isIframe) {
-        setFeedback({ 
-          type: 'error', 
-          message: 'O login foi bloqueado. Por favor, clique no botão superior direito "Abrir em uma nova aba" ou acesse o aplicativo diretamente pelo seu navegador.' 
-        });
+      if (error.code === 'auth/popup-blocked') {
+        setLoginBlocked(true);
       } else {
-        setFeedback({ type: 'error', message: 'Erro ao fazer login. Tente abrir o aplicativo em uma nova aba do navegador.' });
+        setFeedback({ type: 'error', message: 'Erro ao fazer login. Tente novamente.' });
       }
     }
   };
@@ -935,11 +939,13 @@ export default function App() {
 
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
-      const matchName = c.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                        c.telefone.includes(searchTerm);
+      const matchText = c.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        c.telefone.includes(searchTerm) ||
+                        (c.comprou && c.comprou.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                        (c.queria_comprar && c.queria_comprar.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchSize = !searchSize || (c.tamanho && c.tamanho.toLowerCase().includes(searchSize.toLowerCase()));
       const matchCity = !searchCity || (c.cidade && c.cidade.toLowerCase().includes(searchCity.toLowerCase()));
-      return matchName && matchSize && matchCity;
+      return matchText && matchSize && matchCity;
     });
   }, [clients, searchTerm, searchSize, searchCity]);
 
@@ -1131,6 +1137,44 @@ export default function App() {
       </header>
 
       <main className="max-w-4xl mx-auto p-6">
+        {/* Auth Block Warning */}
+        {loginBlocked && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 p-6 bg-red-50 rounded-2xl border border-red-200 shadow-sm relative overflow-hidden"
+          >
+            <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+            <div className="flex items-start gap-4">
+              <div className="bg-red-100 p-2 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-red-800 text-lg mb-1">Ação Necessária para Login</h3>
+                <p className="text-red-700 text-sm mb-4">
+                  O navegador bloqueou a janela de login porque o aplicativo está sendo visualizado dentro de outra plataforma. 
+                  Para fazer login com segurança, você precisa abrir o aplicativo em uma nova aba.
+                </p>
+                <a 
+                  href={window.location.href} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-xl shadow-sm transition-colors inline-flex items-center gap-2 mt-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Abrir no Navegador Agora
+                </a>
+              </div>
+              <button 
+                onClick={() => setLoginBlocked(false)}
+                className="text-red-400 hover:text-red-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Title Section */}
         <div className="text-center mb-10">
           <motion.h2 
@@ -1417,7 +1461,7 @@ export default function App() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-gold" />
               <input 
                 type="text" 
-                placeholder="Buscar por nome ou telefone..."
+                placeholder="Buscar por nome, telefone, interesse ou obs..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
