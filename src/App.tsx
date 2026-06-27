@@ -692,6 +692,18 @@ export default function App() {
     setFeedback(null);
 
     if (isSubmitting) return;
+    
+    const currentCleanPhone = formData.telefone.replace(/\D/g, '');
+    if (currentCleanPhone) {
+      const duplicate = clients.find(c => c.telefone.replace(/\D/g, '') === currentCleanPhone && c.id !== editingClient?.id);
+      if (duplicate) {
+        setFeedback({ 
+          type: 'error', 
+          message: `Este telefone já está cadastrado para o cliente: ${duplicate.nome}. Use outro número.` 
+        });
+        return;
+      }
+    }
 
     setIsSubmitting(true);
     try {
@@ -1307,6 +1319,25 @@ export default function App() {
                   className="w-full px-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
                   placeholder="Ex: (11) 99999-9999"
                 />
+                {(() => {
+                  const currentClean = formData.telefone.replace(/\D/g, '');
+                  if (currentClean) {
+                    const dup = clients.find(c => c.telefone.replace(/\D/g, '') === currentClean && c.id !== editingClient?.id);
+                    if (dup) {
+                      return (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="flex items-center gap-2 mt-2 text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-100"
+                        >
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                          <span>Telefone já cadastrado: <strong>{dup.nome}</strong></span>
+                        </motion.div>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
               </div>
             </div>
 
