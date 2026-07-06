@@ -16,6 +16,7 @@ import {
   where, 
   orderBy, 
   Timestamp,
+  serverTimestamp,
   User,
   getDocs
 } from './firebase';
@@ -46,7 +47,8 @@ import {
   Clipboard,
   LayoutDashboard,
   List,
-  ExternalLink
+  ExternalLink,
+  Upload
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -72,8 +74,13 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 // Error handler
 const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
@@ -1090,6 +1097,97 @@ export default function App() {
     doc.save(`relatorio_crm_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
+  const handleImportPDF = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsSubmitting(true);
+      setFeedback(null);
+      const arrayBuffer = await file.arrayBuffer();
+      
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      const numPages = pdf.numPages;
+      let allText: string[] = [];
+
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        // Extract only the string values
+        const items = textContent.items.map((item: any) => item.str);
+        allText.push(...items);
+      }
+
+      // Filter out empty strings and whitespace strings
+      const filtered = allText.map(i => i.trim()).filter(i => i.length > 0);
+
+      const startIndex = filtered.indexOf('Data');
+      if (startIndex === -1) {
+        setFeedback({ type: 'error', message: 'Formato de PDF inválido.' });
+        setLoading(false);
+        return;
+      }
+
+      const dataItems = filtered.slice(startIndex + 1);
+      let importedCount = 0;
+
+      for (let i = 0; i < dataItems.length; i += 8) {
+        if (i + 7 < dataItems.length) {
+          const nome = dataItems[i];
+          const telefone = dataItems[i+1];
+          const tamanho = dataItems[i+2] === '-' ? '' : dataItems[i+2];
+          const cidade = dataItems[i+3] === '-' ? '' : dataItems[i+3];
+          const interesse = dataItems[i+4] === '-' ? '' : dataItems[i+4];
+          const canal = dataItems[i+5];
+          const comprou_status = dataItems[i+6].toLowerCase();
+          
+          // Basic validation to avoid importing completely wrong data
+          if (!nome || !telefone) continue;
+          
+          const cleanPhone = telefone.replace(/\D/g, '');
+          if (!cleanPhone) continue;
+
+          // Check for duplicate phone
+          const duplicate = clients.find(c => c.telefone.replace(/\D/g, '') === cleanPhone);
+          if (duplicate) continue; // Skip existing
+          
+          const clientData = {
+            nome,
+            telefone,
+            tamanho,
+            cidade,
+            comprou: interesse,
+            queria_comprar: '',
+            obs: '',
+            nascimento: '',
+            comprou_status,
+            canal,
+            userId: user ? user.uid : 'anonymous',
+            created_at: serverTimestamp(),
+            status: 'novo' as const
+          };
+
+          try {
+            await addDoc(collection(db, 'clientes'), clientData);
+            importedCount++;
+          } catch (err) {
+            console.error('Failed to import row', err);
+          }
+        }
+      }
+
+      setFeedback({ type: 'success', message: `${importedCount} clientes importados com sucesso!` });
+    } catch (err) {
+      console.error(err);
+      setFeedback({ type: 'error', message: 'Erro ao processar o arquivo PDF.' });
+    } finally {
+      setIsSubmitting(false);
+      // Reset input value to allow importing the same file again if needed
+      e.target.value = '';
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-brand-blush">
@@ -1538,6 +1636,17 @@ export default function App() {
               >
                 <Download className="w-5 h-5" /> Exportar PDF
               </button>
+              <label className="gold-button font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 cursor-pointer relative">
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                Importar PDF
+                <input 
+                  type="file" 
+                  accept="application/pdf" 
+                  className="hidden" 
+                  onChange={handleImportPDF} 
+                  disabled={isSubmitting}
+                />
+              </label>
             </div>
           </div>
         </div>
