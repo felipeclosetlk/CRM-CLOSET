@@ -961,7 +961,8 @@ export default function App() {
       const matchText = c.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
                         c.telefone.includes(searchTerm) ||
                         (c.comprou && c.comprou.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                        (c.queria_comprar && c.queria_comprar.toLowerCase().includes(searchTerm.toLowerCase()));
+                        (c.queria_comprar && c.queria_comprar.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                        (c.obs && c.obs.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchSize = !searchSize || (c.tamanho && c.tamanho.toLowerCase().includes(searchSize.toLowerCase()));
       const matchCity = !searchCity || (c.cidade && c.cidade.toLowerCase().includes(searchCity.toLowerCase()));
       return matchText && matchSize && matchCity;
@@ -1109,75 +1110,118 @@ export default function App() {
       const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
       const pdf = await loadingTask.promise;
       const numPages = pdf.numPages;
-      let allText: string[] = [];
+      let parsedRows: Record<string, string>[] = [];
 
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
+      for (let p = 1; p <= numPages; p++) {
+        const page = await pdf.getPage(p);
         const textContent = await page.getTextContent();
-        // Extract only the string values
-        const items = textContent.items.map((item: any) => item.str);
-        allText.push(...items);
-      }
+        
+        const allItems = textContent.items.map((item: any) => ({
+          str: item.str,
+          x: item.transform[4],
+          y: item.transform[5]
+        }));
 
-      // Filter out empty strings and whitespace strings
-      const filtered = allText.map(i => i.trim()).filter(i => i.length > 0);
+        // Find headers on this page
+        const headerY = allItems.find(i => i.str === 'Nome')?.y;
+        if (headerY === undefined) continue;
 
-      const startIndex = filtered.indexOf('Data');
-      if (startIndex === -1) {
-        setFeedback({ type: 'error', message: 'Formato de PDF inválido.' });
-        setLoading(false);
-        return;
-      }
+        const rawHeaders = allItems.filter(i => Math.abs(i.y - headerY) < 2);
+        const cols = rawHeaders
+          .map(h => ({ name: h.str, x: h.x }))
+          .sort((a, b) => a.x - b.x)
+          .map((col, index, array) => ({
+            ...col,
+            endX: index < array.length - 1 ? array[index + 1].x - 2 : Infinity
+          }));
 
-      const dataItems = filtered.slice(startIndex + 1);
-      let importedCount = 0;
+        const dataItems = allItems.filter(i => i.y < headerY - 5 && i.str.trim().length > 0);
+        
+        let currentRowData: Record<string, string> = {};
+        let lastColIndex = -1;
 
-      for (let i = 0; i < dataItems.length; i += 8) {
-        if (i + 7 < dataItems.length) {
-          const nome = dataItems[i];
-          const telefone = dataItems[i+1];
-          const tamanho = dataItems[i+2] === '-' ? '' : dataItems[i+2];
-          const cidade = dataItems[i+3] === '-' ? '' : dataItems[i+3];
-          const interesse = dataItems[i+4] === '-' ? '' : dataItems[i+4];
-          const canal = dataItems[i+5];
-          const comprou_status = dataItems[i+6].toLowerCase();
+        for (const item of dataItems) {
+          const colIndex = cols.findIndex(c => item.x >= c.x - 5 && item.x <= c.endX);
+          if (colIndex === -1) continue;
           
-          // Basic validation to avoid importing completely wrong data
-          if (!nome || !telefone) continue;
-          
-          const cleanPhone = telefone.replace(/\D/g, '');
-          if (!cleanPhone) continue;
-
-          // Check for duplicate phone
-          const duplicate = clients.find(c => c.telefone.replace(/\D/g, '') === cleanPhone);
-          if (duplicate) continue; // Skip existing
-          
-          const clientData = {
-            nome,
-            telefone,
-            tamanho,
-            cidade,
-            comprou: interesse,
-            queria_comprar: '',
-            obs: '',
-            nascimento: '',
-            comprou_status,
-            canal,
-            userId: user ? user.uid : 'anonymous',
-            created_at: serverTimestamp(),
-            status: 'novo' as const
-          };
-
-          try {
-            await addDoc(collection(db, 'clientes'), clientData);
-            importedCount++;
-          } catch (err) {
-            console.error('Failed to import row', err);
+          if (colIndex < lastColIndex) {
+            parsedRows.push(currentRowData);
+            currentRowData = {};
           }
+          
+          const colName = cols[colIndex].name;
+          if (!currentRowData[colName]) {
+            currentRowData[colName] = item.str;
+          } else {
+            currentRowData[colName] += ' ' + item.str;
+          }
+          
+          lastColIndex = colIndex;
+        }
+        if (Object.keys(currentRowData).length > 0) {
+          parsedRows.push(currentRowData);
         }
       }
 
-      setFeedback({ type: 'success', message: `${importedCount} clientes importados com sucesso!` });
+      if (parsedRows.length === 0) {
+        setFeedback({ type: 'error', message: 'Nenhum dado encontrado no PDF.' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      for (const row of parsedRows) {
+        const nome = row['Nome'];
+        const telefone = row['Telefone'];
+        
+        if (!nome || !telefone) continue;
+        
+        const tamanho = row['Tam'] === '-' ? '' : (row['Tam'] || '');
+        const cidade = row['Cidade'] === '-' ? '' : (row['Cidade'] || '');
+        const interesse = row['Interesse'] === '-' ? '' : (row['Interesse'] || '');
+        const canal = row['Canal'] || 'WhatsApp';
+        const comprou_status = (row['Status'] || 'Não').toLowerCase() === 'sim' ? 'sim' : 'não';
+        
+        const cleanPhone = telefone.replace(/\D/g, '');
+        if (!cleanPhone) continue;
+
+        // Check for duplicate phone
+        const duplicate = clients.find(c => c.telefone.replace(/\D/g, '') === cleanPhone);
+        if (duplicate) {
+          skippedCount++;
+          continue; // Skip existing
+        }
+        
+        const clientData = {
+          nome,
+          telefone,
+          tamanho,
+          cidade,
+          comprou: interesse,
+          queria_comprar: '',
+          obs: '',
+          nascimento: '',
+          comprou_status,
+          canal,
+          userId: user ? user.uid : 'anonymous',
+          created_at: serverTimestamp(),
+          status: 'novo' as const
+        };
+
+        try {
+          await addDoc(collection(db, 'clientes'), clientData);
+          importedCount++;
+        } catch (err) {
+          console.error('Failed to import row', err);
+        }
+      }
+
+      setFeedback({ 
+        type: importedCount > 0 ? 'success' : 'info', 
+        message: `${importedCount} clientes importados.${skippedCount > 0 ? ` (${skippedCount} ignorados, já existiam).` : ''}` 
+      });
     } catch (err) {
       console.error(err);
       setFeedback({ type: 'error', message: 'Erro ao processar o arquivo PDF.' });
