@@ -74,13 +74,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as pdfjsLib from 'pdfjs-dist';
-// @ts-ignore
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 // Error handler
 const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
@@ -969,38 +964,29 @@ export default function App() {
     });
   }, [clients, searchTerm, searchSize, searchCity]);
 
-  const exportPDF = async () => {
-    const doc = new jsPDF();
-    const today = format(new Date(), 'dd/MM/yyyy');
-    
-    doc.setFontSize(20);
-    doc.setTextColor(142, 93, 90); // #8E5D5A (Brand Rose)
-    doc.text('CRM - GESTÃO DE CLIENTES', 35, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(197, 160, 89); // #C5A059 (Brand Gold)
-    doc.text(`Relatório gerado em: ${today}`, 35, 27);
-
-    const tableData = filteredClients.map(c => [
-      c.nome,
-      c.telefone,
-      c.tamanho || '-',
-      c.cidade || '-',
-      c.comprou || '-',
-      c.canal,
-      c.comprou_status === 'sim' ? 'Sim' : 'Não',
-      format(c.created_at.toDate(), 'dd/MM/yyyy')
+  const exportCSV = () => {
+    const headers = ['Nome', 'Telefone', 'Tamanho', 'Cidade', 'Interesse', 'Canal', 'Status', 'Observacoes', 'Data_Criacao'];
+    const rows = filteredClients.map(c => [
+      `"${(c.nome || '').replace(/"/g, '""')}"`,
+      `"${(c.telefone || '').replace(/"/g, '""')}"`,
+      `"${(c.tamanho || '').replace(/"/g, '""')}"`,
+      `"${(c.cidade || '').replace(/"/g, '""')}"`,
+      `"${(c.comprou || '').replace(/"/g, '""')}"`,
+      `"${(c.canal || '').replace(/"/g, '""')}"`,
+      `"${(c.comprou_status === 'sim' ? 'Sim' : 'Não').replace(/"/g, '""')}"`,
+      `"${(c.obs || '').replace(/"/g, '""')}"`,
+      `"${format(c.created_at.toDate(), 'dd/MM/yyyy')}"`
     ]);
-
-    autoTable(doc, {
-      head: [['Nome', 'Telefone', 'Tam', 'Cidade', 'Interesse', 'Canal', 'Status', 'Data']],
-      body: tableData,
-      startY: 35,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [142, 93, 90] }, // #8E5D5A (Brand Rose)
-    });
-
-    doc.save(`crm_clientes_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    const csvContent = "\uFEFF" + [headers.join(';'), ...rows.map(e => e.join(';'))].join("\n");
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `crm_clientes_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const generateReportPDF = async () => {
@@ -1098,91 +1084,63 @@ export default function App() {
     doc.save(`relatorio_crm_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
-  const handleImportPDF = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
       setIsSubmitting(true);
       setFeedback(null);
-      const arrayBuffer = await file.arrayBuffer();
+      const text = await file.text();
+      const lines = text.split('\n');
       
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-      const pdf = await loadingTask.promise;
-      const numPages = pdf.numPages;
-      let parsedRows: Record<string, string>[] = [];
-
-      for (let p = 1; p <= numPages; p++) {
-        const page = await pdf.getPage(p);
-        const textContent = await page.getTextContent();
-        
-        const allItems = textContent.items.map((item: any) => ({
-          str: item.str,
-          x: item.transform[4],
-          y: item.transform[5]
-        }));
-
-        // Find headers on this page
-        const headerY = allItems.find(i => i.str === 'Nome')?.y;
-        if (headerY === undefined) continue;
-
-        const rawHeaders = allItems.filter(i => Math.abs(i.y - headerY) < 2);
-        const cols = rawHeaders
-          .map(h => ({ name: h.str, x: h.x }))
-          .sort((a, b) => a.x - b.x)
-          .map((col, index, array) => ({
-            ...col,
-            endX: index < array.length - 1 ? array[index + 1].x - 2 : Infinity
-          }));
-
-        const dataItems = allItems.filter(i => i.y < headerY - 5 && i.str.trim().length > 0);
-        
-        let currentRowData: Record<string, string> = {};
-        let lastColIndex = -1;
-
-        for (const item of dataItems) {
-          const colIndex = cols.findIndex(c => item.x >= c.x - 5 && item.x <= c.endX);
-          if (colIndex === -1) continue;
-          
-          if (colIndex < lastColIndex) {
-            parsedRows.push(currentRowData);
-            currentRowData = {};
-          }
-          
-          const colName = cols[colIndex].name;
-          if (!currentRowData[colName]) {
-            currentRowData[colName] = item.str;
-          } else {
-            currentRowData[colName] += ' ' + item.str;
-          }
-          
-          lastColIndex = colIndex;
-        }
-        if (Object.keys(currentRowData).length > 0) {
-          parsedRows.push(currentRowData);
-        }
-      }
-
-      if (parsedRows.length === 0) {
-        setFeedback({ type: 'error', message: 'Nenhum dado encontrado no PDF.' });
+      if (lines.length < 2) {
+        setFeedback({ type: 'error', message: 'Formato de CSV inválido.' });
         setIsSubmitting(false);
         return;
       }
 
+      const separator = lines[0].includes(';') ? ';' : ',';
+      const headers = lines[0].split(separator).map(h => h.replace(/"/g, '').trim().toLowerCase());
+      
       let importedCount = 0;
       let skippedCount = 0;
 
-      for (const row of parsedRows) {
-        const nome = row['Nome'];
-        const telefone = row['Telefone'];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        let row: string[] = [];
+        let inQuotes = false;
+        let current = '';
+        for (let j = 0; j < line.length; j++) {
+            if (line[j] === '"') {
+                inQuotes = !inQuotes;
+            } else if (line[j] === separator && !inQuotes) {
+                row.push(current);
+                current = '';
+            } else {
+                current += line[j];
+            }
+        }
+        row.push(current);
+        
+        const rowData = headers.reduce((acc, header, index) => {
+            acc[header] = row[index]?.replace(/"/g, '').trim() || '';
+            return acc;
+        }, {} as Record<string, string>);
+
+        const nome = rowData['nome'];
+        const telefone = rowData['telefone'];
         
         if (!nome || !telefone) continue;
         
-        const tamanho = row['Tam'] === '-' ? '' : (row['Tam'] || '');
-        const cidade = row['Cidade'] === '-' ? '' : (row['Cidade'] || '');
-        const interesse = row['Interesse'] === '-' ? '' : (row['Interesse'] || '');
-        const canal = row['Canal'] || 'WhatsApp';
-        const comprou_status = (row['Status'] || 'Não').toLowerCase() === 'sim' ? 'sim' : 'não';
+        const tamanho = rowData['tamanho'] === '-' ? '' : (rowData['tamanho'] || '');
+        const cidade = rowData['cidade'] === '-' ? '' : (rowData['cidade'] || '');
+        const interesse = rowData['interesse'] === '-' ? '' : (rowData['interesse'] || '');
+        const canal = rowData['canal'] || 'WhatsApp';
+        const comprou_status = (rowData['status'] || 'Não').toLowerCase() === 'sim' ? 'sim' : 'não';
+        const obs = rowData['observacoes'] || rowData['observações'] || '';
         
         const cleanPhone = telefone.replace(/\D/g, '');
         if (!cleanPhone) continue;
@@ -1201,7 +1159,7 @@ export default function App() {
           cidade,
           comprou: interesse,
           queria_comprar: '',
-          obs: '',
+          obs,
           nascimento: '',
           comprou_status,
           canal,
@@ -1224,10 +1182,9 @@ export default function App() {
       });
     } catch (err) {
       console.error(err);
-      setFeedback({ type: 'error', message: 'Erro ao processar o arquivo PDF.' });
+      setFeedback({ type: 'error', message: 'Erro ao processar o arquivo CSV.' });
     } finally {
       setIsSubmitting(false);
-      // Reset input value to allow importing the same file again if needed
       e.target.value = '';
     }
   };
@@ -1675,19 +1632,19 @@ export default function App() {
                 <BarChart3 className="w-5 h-5 text-brand-gold" /> Relatório
               </button>
               <button 
-                onClick={exportPDF}
+                onClick={exportCSV}
                 className="gold-button font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2"
               >
-                <Download className="w-5 h-5" /> Exportar PDF
+                <Download className="w-5 h-5" /> Exportar CSV
               </button>
               <label className="gold-button font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 cursor-pointer relative">
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
-                Importar PDF
+                Importar CSV
                 <input 
                   type="file" 
-                  accept="application/pdf" 
+                  accept=".csv,text/csv" 
                   className="hidden" 
-                  onChange={handleImportPDF} 
+                  onChange={handleImportCSV} 
                   disabled={isSubmitting}
                 />
               </label>
