@@ -48,7 +48,8 @@ import {
   LayoutDashboard,
   List,
   ExternalLink,
-  Upload
+  Upload,
+  UserPlus
 } from 'lucide-react';
 import { 
   DndContext, 
@@ -409,7 +410,7 @@ export default function App() {
   const [editingClient, setEditingClient] = useState<Cliente | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importText, setImportText] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
+  const [viewMode, setViewMode] = useState<'form' | 'list' | 'kanban'>('list');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [purchasesModalClient, setPurchasesModalClient] = useState<Cliente | null>(null);
 
@@ -747,6 +748,7 @@ export default function App() {
         canal: ''
       });
       setEditingClient(null);
+      setViewMode('list');
       
       // Clear success message after 3 seconds
       setTimeout(() => setFeedback(null), 3000);
@@ -768,6 +770,7 @@ export default function App() {
 
   const handleEdit = (client: Cliente) => {
     setEditingClient(client);
+    setViewMode('form');
     setFormData({
       nome: client.nome,
       telefone: client.telefone,
@@ -782,6 +785,7 @@ export default function App() {
 
   const cancelEdit = () => {
     setEditingClient(null);
+    setViewMode('list');
     setFormData({
       nome: '',
       telefone: '',
@@ -1346,7 +1350,44 @@ export default function App() {
           <div className="w-20 h-1 bg-brand-gold mx-auto mt-4 rounded-full"></div>
         </div>
 
+        {/* View Toggle */}
+        <div className="flex justify-center mb-8">
+          <div className="flex bg-white/50 p-1.5 rounded-2xl border border-brand-rose/10 shadow-sm flex-wrap justify-center gap-1">
+            <button 
+              onClick={() => setViewMode('form')}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                viewMode === 'form' 
+                  ? 'gold-button shadow-md' 
+                  : 'text-brand-rose/60 hover:text-brand-rose hover:bg-white/50'
+              }`}
+            >
+              <UserPlus className="w-5 h-5" /> Novo Cadastro
+            </button>
+            <button 
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                viewMode === 'list' 
+                  ? 'gold-button shadow-md' 
+                  : 'text-brand-rose/60 hover:text-brand-rose hover:bg-white/50'
+              }`}
+            >
+              <Users className="w-5 h-5" /> Lista
+            </button>
+            <button 
+              onClick={() => setViewMode('kanban')}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                viewMode === 'kanban' 
+                  ? 'gold-button shadow-md' 
+                  : 'text-brand-rose/60 hover:text-brand-rose hover:bg-white/50'
+              }`}
+            >
+              <LayoutDashboard className="w-5 h-5" /> Kanban
+            </button>
+          </div>
+        </div>
+
         {/* Form Section */}
+        {viewMode === 'form' && (
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1601,7 +1642,10 @@ export default function App() {
             </button>
           </form>
         </motion.div>
+        )}
 
+        {(viewMode === 'list' || viewMode === 'kanban') && (
+        <>
         {/* Filters & Actions */}
         <div className="space-y-4 mb-8">
           <div className="flex items-center justify-between mb-2">
@@ -1609,30 +1653,7 @@ export default function App() {
               {viewMode === 'list' ? <Users className="w-6 h-6 text-brand-gold" /> : <LayoutDashboard className="w-6 h-6 text-brand-gold" />}
               {viewMode === 'list' ? 'Lista de Clientes' : 'Quadro Kanban CRM'}
             </h3>
-            <div className="flex bg-white/50 p-1 rounded-xl border border-brand-rose/10 shadow-sm">
-              <button 
-                onClick={() => setViewMode('list')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                  viewMode === 'list' 
-                    ? 'gold-button shadow-md' 
-                    : 'text-brand-rose/40 hover:text-brand-rose'
-                }`}
-              >
-                <List className="w-4 h-4" /> Lista
-              </button>
-              <button 
-                onClick={() => setViewMode('kanban')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                  viewMode === 'kanban' 
-                    ? 'gold-button shadow-md' 
-                    : 'text-brand-rose/40 hover:text-brand-rose'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4" /> Kanban
-              </button>
-            </div>
           </div>
-
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-[200px] relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-gold" />
@@ -1856,6 +1877,8 @@ export default function App() {
           </AnimatePresence>
           )}
         </div>
+        </>
+        )}
       </main>
 
       {/* Purchases Modal */}
