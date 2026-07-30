@@ -1209,7 +1209,7 @@ export default function App() {
           queria_comprar: '',
           comprou_status,
           canal,
-          uid: user ? user.uid : 'anonymous',
+          uid: user?.uid || getGuestId(),
           status_crm: 'LEAD FRIO',
           created_at: Timestamp.now(),
           status: 'novo' as const
