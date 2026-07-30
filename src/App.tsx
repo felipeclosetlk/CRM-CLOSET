@@ -124,6 +124,7 @@ function PurchasesModal({ client, onClose }: { client: Cliente, onClose: () => v
   const [descricao, setDescricao] = useState('');
   const [data, setData] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
 
   const handleAddPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,23 +168,29 @@ function PurchasesModal({ client, onClose }: { client: Cliente, onClose: () => v
 
   const handleDeletePurchase = async (compraId: string) => {
     if (!client.id || !client.compras) return;
-    if (!window.confirm('Excluir esta compra?')) return;
+    
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Excluir Compra',
+      message: 'Tem certeza que deseja excluir esta compra?',
+      onConfirm: async () => {
+        try {
+          const compras = client.compras!.filter(c => c.id !== compraId);
+          const total_gasto = compras.reduce((acc, curr) => acc + curr.valor, 0);
+          const ultima_compra = compras.length > 0 
+            ? compras.reduce((latest, curr) => curr.data.toMillis() > latest.toMillis() ? curr.data : latest, compras[0].data)
+            : null;
 
-    try {
-      const compras = client.compras.filter(c => c.id !== compraId);
-      const total_gasto = compras.reduce((acc, curr) => acc + curr.valor, 0);
-      const ultima_compra = compras.length > 0 
-        ? compras.reduce((latest, curr) => curr.data.toMillis() > latest.toMillis() ? curr.data : latest, compras[0].data)
-        : null;
-
-      await updateDoc(doc(db, 'clientes', client.id), {
-        compras,
-        total_gasto,
-        ultima_compra
-      });
-    } catch (error) {
-      console.error('Erro ao excluir compra:', error);
-    }
+          await updateDoc(doc(db, 'clientes', client.id!), {
+            compras,
+            total_gasto,
+            ultima_compra
+          });
+        } catch (error) {
+          console.error('Erro ao excluir compra:', error);
+        }
+      }
+    });
   };
 
   return (
@@ -282,6 +289,18 @@ function PurchasesModal({ client, onClose }: { client: Cliente, onClose: () => v
           </div>
         </div>
       </div>
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-brand-rose/10">
+            <h3 className="text-xl font-bold text-brand-rose mb-2">{confirmDialog.title}</h3>
+            <p className="text-brand-rose/60 mb-6">{confirmDialog.message}</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmDialog({...confirmDialog, isOpen: false})} className="px-5 py-2.5 rounded-xl font-bold text-brand-rose/60 hover:bg-gray-100 transition-colors">Cancelar</button>
+              <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({...confirmDialog, isOpen: false}); }} className="px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -413,6 +432,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'form' | 'list' | 'kanban'>('list');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [purchasesModalClient, setPurchasesModalClient] = useState<Cliente | null>(null);
+  const [appConfirmDialog, setAppConfirmDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
 
   // Helper function to extract info from text
   const extractInfoFromText = (text: string) => {
@@ -859,12 +879,43 @@ export default function App() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir esta cliente?')) return;
-    try {
-      await deleteDoc(doc(db, 'clientes', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `clientes/${id}`);
-    }
+    setAppConfirmDialog({
+      isOpen: true,
+      title: 'Excluir Cliente',
+      message: 'Tem certeza que deseja excluir esta cliente?',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'clientes', id));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `clientes/${id}`);
+        }
+      }
+    });
+  };
+
+  const handleClearAll = async () => {
+    if (clients.length === 0) return;
+    
+    setAppConfirmDialog({
+      isOpen: true,
+      title: 'Limpar Tudo',
+      message: 'Tem certeza que deseja apagar TODOS os clientes? Esta ação não pode ser desfeita.',
+      onConfirm: async () => {
+        try {
+          setIsSubmitting(true);
+          const deletePromises = clients.map(client => client.id ? deleteDoc(doc(db, 'clientes', client.id)) : Promise.resolve());
+          await Promise.all(deletePromises);
+          setFeedback({ type: 'success', message: 'Todos os clientes foram apagados.' });
+          setTimeout(() => setFeedback(null), 3000);
+        } catch (error) {
+          console.error('Erro ao apagar todos:', error);
+          setFeedback({ type: 'error', message: 'Erro ao apagar os clientes. Tente novamente.' });
+          setTimeout(() => setFeedback(null), 3000);
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    });
   };
 
   const sensors = useSensors(
@@ -1694,6 +1745,13 @@ export default function App() {
             </div>
             <div className="flex flex-wrap gap-3">
               <button 
+                onClick={handleClearAll}
+                disabled={isSubmitting || clients.length === 0}
+                className="bg-white text-red-500 border border-red-200 font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 hover:bg-red-50 disabled:opacity-50"
+              >
+                <Trash2 className="w-5 h-5" /> Limpar Tudo
+              </button>
+              <button 
                 onClick={generateReportPDF}
                 className="bg-white text-brand-rose border border-brand-gold/30 font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 hover:bg-brand-blush"
               >
@@ -1897,6 +1955,20 @@ export default function App() {
             <p className="text-amber-800 text-sm font-medium">
               Limite de 999 clientes atingido. Remova registros antigos para continuar.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {appConfirmDialog.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-brand-rose/10">
+            <h3 className="text-xl font-bold text-brand-rose mb-2">{appConfirmDialog.title}</h3>
+            <p className="text-brand-rose/60 mb-6">{appConfirmDialog.message}</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setAppConfirmDialog({...appConfirmDialog, isOpen: false})} className="px-5 py-2.5 rounded-xl font-bold text-brand-rose/60 hover:bg-gray-100 transition-colors">Cancelar</button>
+              <button onClick={() => { appConfirmDialog.onConfirm(); setAppConfirmDialog({...appConfirmDialog, isOpen: false}); }} className="px-5 py-2.5 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 transition-colors">Confirmar</button>
+            </div>
           </div>
         </div>
       )}
