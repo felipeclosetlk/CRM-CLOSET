@@ -78,7 +78,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -1125,40 +1125,47 @@ export default function App() {
         const headerY = allItems.find(i => i.str === 'Nome')?.y;
         if (headerY === undefined) continue;
 
-        const rawHeaders = allItems.filter(i => Math.abs(i.y - headerY) < 2);
+        const rawHeaders = allItems.filter((i: any) => Math.abs(i.y - headerY) < 2 && i.str.trim().length > 0);
         const cols = rawHeaders
-          .map(h => ({ name: h.str, x: h.x }))
+          .map((h: any) => ({ name: h.str.trim(), x: h.x }))
           .sort((a, b) => a.x - b.x)
           .map((col, index, array) => ({
             ...col,
             endX: index < array.length - 1 ? array[index + 1].x - 2 : Infinity
           }));
 
-        const dataItems = allItems.filter(i => i.y < headerY - 5 && i.str.trim().length > 0);
+        const dataItems = allItems.filter((i: any) => i.y < headerY - 5 && i.str.trim().length > 0);
         
-        let currentRowData: Record<string, string> = {};
-        let lastColIndex = -1;
-
-        for (const item of dataItems) {
-          const colIndex = cols.findIndex(c => item.x >= c.x - 5 && item.x <= c.endX);
-          if (colIndex === -1) continue;
-          
-          if (colIndex < lastColIndex) {
-            parsedRows.push(currentRowData);
-            currentRowData = {};
-          }
-          
-          const colName = cols[colIndex].name;
-          if (!currentRowData[colName]) {
-            currentRowData[colName] = item.str;
-          } else {
-            currentRowData[colName] += ' ' + item.str;
-          }
-          
-          lastColIndex = colIndex;
-        }
-        if (Object.keys(currentRowData).length > 0) {
-          parsedRows.push(currentRowData);
+        // Group data items by Y coordinate (rounded to avoid small differences)
+        const rowGroups = dataItems.reduce((acc: any, item: any) => {
+          const y = Math.round(item.y);
+          if (!acc[y]) acc[y] = [];
+          acc[y].push(item);
+          return acc;
+        }, {});
+        
+        // Sort Y coordinates descending (top to bottom)
+        const sortedYs = Object.keys(rowGroups).map(Number).sort((a, b) => b - a);
+        
+        for (const y of sortedYs) {
+           const rowItems = rowGroups[y].sort((a: any, b: any) => a.x - b.x);
+           let currentRowData: Record<string, string> = {};
+           
+           for (const item of rowItems) {
+             const colIndex = cols.findIndex(c => item.x >= c.x - 5 && item.x <= c.endX);
+             if (colIndex === -1) continue;
+             
+             const colName = cols[colIndex].name;
+             if (!currentRowData[colName]) {
+               currentRowData[colName] = item.str;
+             } else {
+               currentRowData[colName] += ' ' + item.str;
+             }
+           }
+           
+           if (Object.keys(currentRowData).length > 0) {
+             parsedRows.push(currentRowData);
+           }
         }
       }
 
@@ -1172,16 +1179,16 @@ export default function App() {
       let skippedCount = 0;
 
       for (const row of parsedRows) {
-        const nome = row['Nome'];
-        const telefone = row['Telefone'];
+        const nome = row['Nome']?.trim();
+        const telefone = row['Telefone']?.trim();
         
         if (!nome || !telefone) continue;
         
-        const tamanho = row['Tam'] === '-' ? '' : (row['Tam'] || '');
-        const cidade = row['Cidade'] === '-' ? '' : (row['Cidade'] || '');
-        const interesse = row['Interesse'] === '-' ? '' : (row['Interesse'] || '');
-        const canal = row['Canal'] || 'WhatsApp';
-        const comprou_status = (row['Status'] || 'Não').toLowerCase() === 'sim' ? 'sim' : 'não';
+        const tamanho = row['Tam'] === '-' ? '' : (row['Tam']?.trim() || '');
+        const cidade = row['Cidade'] === '-' ? '' : (row['Cidade']?.trim() || '');
+        const interesse = row['Interesse'] === '-' ? '' : (row['Interesse']?.trim() || '');
+        const canal = row['Canal']?.trim() || 'WhatsApp';
+        const comprou_status = (row['Status'] || 'Não').toLowerCase().includes('sim') ? 'sim' : 'nao';
         
         const cleanPhone = telefone.replace(/\D/g, '');
         if (!cleanPhone) continue;

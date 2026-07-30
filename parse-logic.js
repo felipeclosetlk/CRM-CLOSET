@@ -1,1 +1,0 @@
-// Simulating the function structure
