@@ -117,7 +117,7 @@ const getGuestId = () => {
   return id;
 };
 
-const SECTORES_CRM = ['LEAD FRIO', 'LEAD MORNO', 'LEAD QUENTE', 'EM ATENDIMENTO', 'FINALIZADO'] as const;
+const SECTORES_CRM = ['CLIENTE NOVO', 'CLIENTE INTERESSADO', 'CLIENTE FINALIZADO'] as const;
 
 function PurchasesModal({ client, onClose }: { client: Cliente, onClose: () => void }) {
   const [valor, setValor] = useState('');
@@ -750,7 +750,7 @@ export default function App() {
         const newClient: Omit<Cliente, 'id'> = {
           ...formData,
           comprou_status: 'nao',
-          status_crm: 'LEAD FRIO',
+          status_crm: 'CLIENTE NOVO',
           created_at: Timestamp.now(),
           uid: effectiveUid
         };
@@ -954,7 +954,7 @@ export default function App() {
       // Dropped over a card, find that card's status
       const overClient = clients.find(c => c.id === overId);
       if (overClient) {
-        newStatus = overClient.status_crm || 'LEAD FRIO';
+        newStatus = overClient.status_crm || 'CLIENTE NOVO';
       } else {
         return;
       }
@@ -963,7 +963,7 @@ export default function App() {
     const activeClient = clients.find(c => c.id === clientId);
     if (!activeClient) return;
 
-    const oldStatus = activeClient.status_crm || 'LEAD FRIO';
+    const oldStatus = activeClient.status_crm || 'CLIENTE NOVO';
 
     if (oldStatus !== newStatus) {
       // Move to another column
@@ -976,7 +976,7 @@ export default function App() {
       }
     } else if (active.id !== over.id) {
       // Reorder within the same column
-      const columnClients = clients.filter(c => (c.status_crm || 'LEAD FRIO') === newStatus);
+      const columnClients = clients.filter(c => (c.status_crm || 'CLIENTE NOVO') === newStatus);
       const oldIndex = columnClients.findIndex(c => c.id === active.id);
       const newIndex = columnClients.findIndex(c => c.id === over.id);
       
@@ -985,7 +985,7 @@ export default function App() {
         
         // Update all positions in this column locally first for immediate feedback
         setClients((prev: Cliente[]) => {
-          const otherClients = prev.filter(c => (c.status_crm || 'LEAD FRIO') !== newStatus);
+          const otherClients = prev.filter(c => (c.status_crm || 'CLIENTE NOVO') !== newStatus);
           const updatedColumnClients = newColumnClients.map((c: Cliente, i: number) => ({ ...c, posicao: i }));
           return [...otherClients, ...updatedColumnClients].sort((a, b) => {
             if (a.posicao !== undefined && b.posicao !== undefined) return a.posicao - b.posicao;
@@ -1265,7 +1265,7 @@ export default function App() {
           comprou_status,
           canal,
           uid: user?.uid || getGuestId(),
-          status_crm: 'LEAD FRIO',
+          status_crm: 'CLIENTE NOVO',
           created_at: Timestamp.now(),
           status: 'novo' as const
         };
@@ -1793,7 +1793,7 @@ export default function App() {
                     <KanbanColumn 
                       key={sector} 
                       status={sector}
-                      clients={filteredClients.filter(c => (!c.status_crm && sector === 'LEAD FRIO') || c.status_crm === sector)}
+                      clients={filteredClients.filter(c => (!c.status_crm && sector === 'CLIENTE NOVO') || c.status_crm === sector)}
                       onOpenPurchases={setPurchasesModalClient}
                     />
                   ))}
