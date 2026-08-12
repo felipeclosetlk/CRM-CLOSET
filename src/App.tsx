@@ -119,6 +119,13 @@ const getGuestId = () => {
 
 const SECTORES_CRM = ['CLIENTE NOVO', 'CLIENTE INTERESSADO', 'CLIENTE FINALIZADO'] as const;
 
+const getClientStatus = (client: Cliente | Partial<Cliente>) => {
+  if (client.status_crm && SECTORES_CRM.includes(client.status_crm as any)) {
+    return client.status_crm;
+  }
+  return 'CLIENTE NOVO';
+};
+
 function PurchasesModal({ client, onClose }: { client: Cliente, onClose: () => void }) {
   const [valor, setValor] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -954,7 +961,7 @@ export default function App() {
       // Dropped over a card, find that card's status
       const overClient = clients.find(c => c.id === overId);
       if (overClient) {
-        newStatus = overClient.status_crm || 'CLIENTE NOVO';
+        newStatus = getClientStatus(overClient);
       } else {
         return;
       }
@@ -963,7 +970,7 @@ export default function App() {
     const activeClient = clients.find(c => c.id === clientId);
     if (!activeClient) return;
 
-    const oldStatus = activeClient.status_crm || 'CLIENTE NOVO';
+    const oldStatus = getClientStatus(activeClient);
 
     if (oldStatus !== newStatus) {
       // Move to another column
@@ -976,7 +983,7 @@ export default function App() {
       }
     } else if (active.id !== over.id) {
       // Reorder within the same column
-      const columnClients = clients.filter(c => (c.status_crm || 'CLIENTE NOVO') === newStatus);
+      const columnClients = clients.filter(c => getClientStatus(c) === newStatus);
       const oldIndex = columnClients.findIndex(c => c.id === active.id);
       const newIndex = columnClients.findIndex(c => c.id === over.id);
       
@@ -985,7 +992,7 @@ export default function App() {
         
         // Update all positions in this column locally first for immediate feedback
         setClients((prev: Cliente[]) => {
-          const otherClients = prev.filter(c => (c.status_crm || 'CLIENTE NOVO') !== newStatus);
+          const otherClients = prev.filter(c => getClientStatus(c) !== newStatus);
           const updatedColumnClients = newColumnClients.map((c: Cliente, i: number) => ({ ...c, posicao: i }));
           return [...otherClients, ...updatedColumnClients].sort((a, b) => {
             if (a.posicao !== undefined && b.posicao !== undefined) return a.posicao - b.posicao;
@@ -1793,7 +1800,7 @@ export default function App() {
                     <KanbanColumn 
                       key={sector} 
                       status={sector}
-                      clients={filteredClients.filter(c => (!c.status_crm && sector === 'CLIENTE NOVO') || c.status_crm === sector)}
+                      clients={filteredClients.filter(c => getClientStatus(c) === sector)}
                       onOpenPurchases={setPurchasesModalClient}
                     />
                   ))}
