@@ -601,7 +601,7 @@ export default function App() {
     return () => clearTimeout(timeoutId);
   }, [importText, isImporting]);
 
-  const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG'];
+  const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', '34', '36', '38', '40', '42', '44'];
   const INTERESSES = ['Regatas', 'Blusas', 'Camisa', 'Vestidos', 'Macaquinhos', 'Conjuntos', 'Saias', 'Calça Formal', 'Calça Jeans'];
 
   // Form state
@@ -1589,23 +1589,34 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
-                  <Ruler className="w-4 h-4 text-brand-gold" /> Tamanho / Referência
+                  <Ruler className="w-4 h-4 text-brand-gold" /> Tamanho / Referência (Selecione vários)
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {TAMANHOS.map(tam => (
-                    <button
-                      key={tam}
-                      type="button"
-                      onClick={() => setFormData({...formData, tamanho: tam})}
-                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
-                        formData.tamanho === tam 
-                          ? 'gold-button border-transparent' 
-                          : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
-                      }`}
-                    >
-                      {tam}
-                    </button>
-                  ))}
+                  {TAMANHOS.map(tam => {
+                    const isSelected = formData.tamanho?.split(', ').includes(tam);
+                    return (
+                      <button
+                        key={tam}
+                        type="button"
+                        onClick={() => {
+                          let current = formData.tamanho ? formData.tamanho.split(', ') : [];
+                          if (isSelected) {
+                            current = current.filter(item => item !== tam);
+                          } else {
+                            current.push(tam);
+                          }
+                          setFormData({...formData, tamanho: current.join(', ')});
+                        }}
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
+                          isSelected 
+                            ? 'gold-button border-transparent' 
+                            : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
+                        }`}
+                      >
+                        {tam}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-2">
@@ -1625,35 +1636,15 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
-                  <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produtos de Interesse (Selecione vários)
+                  <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produtos de Interesse
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {INTERESSES.map(int => {
-                    const isSelected = formData.comprou.split(', ').includes(int);
-                    return (
-                      <button
-                        key={int}
-                        type="button"
-                        onClick={() => {
-                          let current = formData.comprou ? formData.comprou.split(', ') : [];
-                          if (isSelected) {
-                            current = current.filter(item => item !== int);
-                          } else {
-                            current.push(int);
-                          }
-                          setFormData({...formData, comprou: current.join(', ')});
-                        }}
-                        className={`px-3 py-2 rounded-xl text-[11px] font-bold transition-all border uppercase tracking-wider ${
-                          isSelected 
-                            ? 'gold-button border-transparent' 
-                            : 'bg-white/50 border-brand-rose/10 text-brand-rose/60 hover:border-brand-gold'
-                        }`}
-                      >
-                        {int}
-                      </button>
-                    );
-                  })}
-                </div>
+                <input 
+                  type="text" 
+                  value={formData.comprou}
+                  onChange={e => setFormData({...formData, comprou: e.target.value})}
+                  className="w-full px-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
+                  placeholder="Ex: Vestido longo, Calça alfaiataria"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
