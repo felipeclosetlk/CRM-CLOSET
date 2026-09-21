@@ -236,16 +236,46 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     setErrorMessage(null);
 
     try {
-      const response = await fetch('/api/extract-print', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image: targetImage,
-          mimeType: targetMime,
-        }),
-      });
+      let response: Response | null = null;
+      let lastNetworkErr: any = null;
+
+      // Try prioritized endpoints with short retry in case the server was rebooting
+      const endpointsToTry = ['/api/extract-print', '/extract-print'];
+
+      for (let attempt = 0; attempt < endpointsToTry.length; attempt++) {
+        try {
+          const ep = endpointsToTry[attempt];
+          const res = await fetch(ep, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              image: targetImage,
+              mimeType: targetMime,
+            }),
+          });
+
+          // If succeeded or returned standard API response (not a 404/502 gateway error)
+          if (res.ok || (res.status !== 404 && res.status !== 502)) {
+            response = res;
+            break;
+          }
+          response = res;
+        } catch (fetchErr) {
+          lastNetworkErr = fetchErr;
+        }
+
+        // Brief delay before trying next endpoint variant
+        if (attempt < endpointsToTry.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      }
+
+      if (!response) {
+        throw lastNetworkErr || new Error('Não foi possível conectar ao servidor. Por favor, tente novamente.');
+      }
 
       // Safely read response as text first to prevent Safari SyntaxError when response is HTML or non-JSON
       const responseText = await response.text();
@@ -254,6 +284,9 @@ export const PrintModal: React.FC<PrintModalProps> = ({
       try {
         result = JSON.parse(responseText);
       } catch {
+        if (response.status === 404) {
+          throw new Error('O servidor de análise estava iniciando no momento da solicitação. Por favor, clique em "Reanalisar" para continuar.');
+        }
         if (response.status === 413) {
           throw new Error('A imagem é muito pesada para envio. A resolução foi ajustada automaticamente, por favor clique em Reanalisar.');
         }

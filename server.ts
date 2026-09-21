@@ -8,17 +8,28 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS and request headers middleware
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   // Middleware for large payload (support base64 images from WhatsApp screenshot prints)
   app.use(express.json({ limit: '35mb' }));
   app.use(express.urlencoded({ extended: true, limit: '35mb' }));
 
   // Health check
-  app.get('/api/health', (req, res) => {
+  app.get(['/api/health', '/health'], (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Extract client information from WhatsApp screenshot print
-  app.post('/api/extract-print', async (req, res) => {
+  // Extract client information from WhatsApp screenshot print (supports multiple endpoint aliases)
+  const extractPrintHandler = async (req: express.Request, res: express.Response) => {
     try {
       const { image, mimeType } = req.body;
       if (!image || typeof image !== 'string') {
@@ -155,7 +166,12 @@ Retorne rigorosamente no schema JSON definido.`;
         error: errorMsg
       });
     }
-  });
+  };
+
+  // Register all path variants to prevent 404 regardless of reverse proxy or routing prefixes
+  app.post(['/api/extract-print', '/extract-print', '/api/extract-print/'], extractPrintHandler);
+  // Also register regex to catch any subpath ending with /api/extract-print
+  app.post(/\/api\/extract-print\/?$/, extractPrintHandler);
 
   // Vite middleware for development vs static build in production
   if (process.env.NODE_ENV !== 'production') {
