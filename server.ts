@@ -70,12 +70,13 @@ Extraia com a maior precisão possível as informações cadastrais da cliente:
 
 Retorne rigorosamente no schema JSON definido.`;
 
-      // Try prioritized models in sequence in case of temporary 503 high demand spikes
-      const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      // Prioritize high-availability and fast models with graceful backoff
+      const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
       let response: any = null;
       let lastModelError: any = null;
 
-      for (const modelName of candidateModels) {
+      for (let i = 0; i < candidateModels.length; i++) {
+        const modelName = candidateModels[i];
         try {
           response = await ai.models.generateContent({
             model: modelName,
@@ -114,8 +115,12 @@ Retorne rigorosamente no schema JSON definido.`;
             break;
           }
         } catch (mErr: any) {
-          console.warn(`[extract-print] Falha com modelo ${modelName}:`, mErr?.message || mErr);
           lastModelError = mErr;
+          console.log(`[extract-print] Modelo ${modelName} temporariamente indisponível (${mErr?.status || 503}), tentando próxima alternativa...`);
+          // Brief pause before trying next model to avoid rapid-fire contention
+          if (i < candidateModels.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 600));
+          }
         }
       }
 
