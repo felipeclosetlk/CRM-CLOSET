@@ -89,28 +89,88 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
   if (!isOpen) return null;
 
-  const processFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
+  // Helper to compress and downscale high-res screenshots on client-side before sending to server
+  const compressAndPrepareImage = (file: File): Promise<{ base64: string; mimeType: string }> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const rawBase64 = event.target?.result as string;
+        if (!rawBase64) {
+          resolve({ base64: '', mimeType: 'image/jpeg' });
+          return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const MAX_DIM = 1400; // Optimal resolution for crisp text without exceeding proxy/cloud payload limits
+            let { width, height } = img;
+
+            if (width > MAX_DIM || height > MAX_DIM) {
+              if (width > height) {
+                height = Math.round((height * MAX_DIM) / width);
+                width = MAX_DIM;
+              } else {
+                width = Math.round((width * MAX_DIM) / height);
+                height = MAX_DIM;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
+              return;
+            }
+
+            // Fill white background in case of transparent PNG screenshots
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressed = canvas.toDataURL('image/jpeg', 0.85);
+            resolve({ base64: compressed, mimeType: 'image/jpeg' });
+          } catch {
+            resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
+          }
+        };
+        img.onerror = () => {
+          resolve({ base64: rawBase64, mimeType: file.type || 'image/jpeg' });
+        };
+        img.src = rawBase64;
+      };
+      reader.onerror = () => {
+        resolve({ base64: '', mimeType: 'image/jpeg' });
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const processFile = async (file: File) => {
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(png|jpe?g|webp|heic|bmp)$/i)) {
       setErrorMessage('Por favor, selecione uma imagem válida (PNG, JPG, WEBP).');
       return;
     }
 
     setErrorMessage(null);
     setExtractedData(null);
-    const type = file.type || 'image/png';
-    setMimeType(type);
+    setIsAnalyzing(true);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    try {
+      const { base64, mimeType: optMime } = await compressAndPrepareImage(file);
+      if (!base64) {
+        throw new Error('Não foi possível ler os dados da imagem selecionada.');
+      }
       setImagePreview(base64);
-      // Automatically trigger analysis when image is loaded
-      analyzeScreenshot(base64, type);
-    };
-    reader.onerror = () => {
-      setErrorMessage('Erro ao ler arquivo da imagem.');
-    };
-    reader.readAsDataURL(file);
+      setMimeType(optMime);
+      await analyzeScreenshot(base64, optMime);
+    } catch (err: any) {
+      console.error('Erro ao processar imagem:', err);
+      setErrorMessage(err.message || 'Erro ao processar o arquivo de imagem.');
+      setIsAnalyzing(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,10 +207,14 @@ export const PrintModal: React.FC<PrintModalProps> = ({
       for (const item of clipboardItems) {
         const imageType = item.types.find((t) => t.startsWith('image/'));
         if (imageType) {
-          const blob = await item.getType(imageType);
-          const file = new File([blob], 'screenshot.png', { type: imageType });
-          processFile(file);
-          return;
+          try {
+            const blob = await item.getType(imageType);
+            const file = new File([blob], 'screenshot.png', { type: imageType });
+            await processFile(file);
+            return;
+          } catch (clipErr) {
+            console.warn('Erro ao obter blob do clipboard item:', clipErr);
+          }
         }
       }
       setErrorMessage('Nenhuma imagem encontrada na área de transferência. Tire o print (PrintScreen ou Win+Shift+S), copie e cole aqui!');
@@ -183,10 +247,38 @@ export const PrintModal: React.FC<PrintModalProps> = ({
         }),
       });
 
-      const result = await response.json();
+      // Safely read response as text first to prevent Safari SyntaxError when response is HTML or non-JSON
+      const responseText = await response.text();
+      let result: any = null;
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Não foi possível extrair dados do print.');
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        if (response.status === 413) {
+          throw new Error('A imagem é muito pesada para envio. A resolução foi ajustada automaticamente, por favor clique em Reanalisar.');
+        }
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new Error('O servidor de inteligência artificial está temporariamente ocupado. Por favor, tente novamente em instantes.');
+        }
+        throw new Error(`Erro na comunicação com o servidor (${response.status}). Por favor, tente novamente.`);
+      }
+
+      if (!response.ok || !result || !result.success) {
+        let errDesc = result?.error || 'Não foi possível extrair dados do print.';
+        if (typeof errDesc === 'string') {
+          if (errDesc.includes('"message":')) {
+            try {
+              const parsed = JSON.parse(errDesc);
+              if (parsed?.error?.message) {
+                errDesc = parsed.error.message;
+              }
+            } catch {}
+          }
+          if (errDesc.includes('high demand') || errDesc.includes('503')) {
+            errDesc = 'O modelo de inteligência artificial está com alta demanda momentânea. Clique em "Reanalisar" em alguns instantes.';
+          }
+        }
+        throw new Error(errDesc);
       }
 
       const data = result.data || {};
@@ -202,7 +294,12 @@ export const PrintModal: React.FC<PrintModalProps> = ({
       });
     } catch (err: any) {
       console.error('Erro na análise:', err);
-      setErrorMessage(err.message || 'Falha ao analisar a imagem com inteligência artificial.');
+      let friendlyMessage = err?.message || 'Falha ao analisar a imagem com inteligência artificial.';
+      // Clean up WebKit/Safari generic pattern error messages
+      if (typeof friendlyMessage === 'string' && friendlyMessage.includes('The string did not match the expected pattern')) {
+        friendlyMessage = 'A imagem recebida necessitou de reajuste. Por favor, clique em "Reanalisar" para continuar.';
+      }
+      setErrorMessage(friendlyMessage);
     } finally {
       setIsAnalyzing(false);
     }

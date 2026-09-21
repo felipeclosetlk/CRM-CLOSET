@@ -34,11 +34,16 @@ async function startServer() {
 
       // Handle data URL scheme if present
       let cleanBase64 = image;
-      let detectedMimeType = mimeType || 'image/png';
+      let detectedMimeType = (mimeType || 'image/jpeg').toLowerCase();
       if (image.includes(';base64,')) {
         const parts = image.split(';base64,');
-        detectedMimeType = parts[0].replace('data:', '').trim() || detectedMimeType;
+        detectedMimeType = parts[0].replace('data:', '').trim().toLowerCase() || detectedMimeType;
         cleanBase64 = parts[1].trim();
+      }
+
+      // Ensure valid standard MIME type for Gemini API
+      if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(detectedMimeType)) {
+        detectedMimeType = 'image/jpeg';
       }
 
       const ai = new GoogleGenAI({
@@ -65,38 +70,58 @@ Extraia com a maior precisão possível as informações cadastrais da cliente:
 
 Retorne rigorosamente no schema JSON definido.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: detectedMimeType,
-                data: cleanBase64,
-              }
+      // Try prioritized models in sequence in case of temporary 503 high demand spikes
+      const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      let response: any = null;
+      let lastModelError: any = null;
+
+      for (const modelName of candidateModels) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: detectedMimeType,
+                    data: cleanBase64,
+                  }
+                },
+                {
+                  text: prompt
+                }
+              ]
             },
-            {
-              text: prompt
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  nome: { type: Type.STRING, description: 'Nome da cliente' },
+                  telefone: { type: Type.STRING, description: 'Telefone com DDD' },
+                  tamanho: { type: Type.STRING, description: 'Tamanho de roupas' },
+                  cidade: { type: Type.STRING, description: 'Cidade ou localização' },
+                  comprou: { type: Type.STRING, description: 'Produtos de interesse ou comprados' },
+                  queria_comprar: { type: Type.STRING, description: 'Observações da conversa' },
+                  canal: { type: Type.STRING, description: 'Canal de origem (WhatsApp)' },
+                  comprou_status: { type: Type.STRING, description: 'sim ou nao' }
+                }
+              }
             }
-          ]
-        },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              nome: { type: Type.STRING, description: 'Nome da cliente' },
-              telefone: { type: Type.STRING, description: 'Telefone com DDD' },
-              tamanho: { type: Type.STRING, description: 'Tamanho de roupas' },
-              cidade: { type: Type.STRING, description: 'Cidade ou localização' },
-              comprou: { type: Type.STRING, description: 'Produtos de interesse ou comprados' },
-              queria_comprar: { type: Type.STRING, description: 'Observações da conversa' },
-              canal: { type: Type.STRING, description: 'Canal de origem (WhatsApp)' },
-              comprou_status: { type: Type.STRING, description: 'sim ou nao' }
-            }
+          });
+
+          if (response?.text) {
+            break;
           }
+        } catch (mErr: any) {
+          console.warn(`[extract-print] Falha com modelo ${modelName}:`, mErr?.message || mErr);
+          lastModelError = mErr;
         }
-      });
+      }
+
+      if (!response?.text) {
+        throw lastModelError || new Error('Não foi possível obter resposta do serviço de IA.');
+      }
 
       const responseText = response.text?.trim() || '{}';
       let parsed = {};
@@ -104,7 +129,10 @@ Retorne rigorosamente no schema JSON definido.`;
         parsed = JSON.parse(responseText);
       } catch (err) {
         console.error('Falha ao converter resposta do modelo para JSON:', responseText);
-        return res.status(500).json({ error: 'Não foi possível interpretar o resultado da IA.' });
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Não foi possível interpretar o resultado da IA.' 
+        });
       }
 
       return res.json({
@@ -113,8 +141,13 @@ Retorne rigorosamente no schema JSON definido.`;
       });
     } catch (error: any) {
       console.error('Erro na rota /api/extract-print:', error);
+      let errorMsg = error?.message || 'Erro inesperado ao processar print.';
+      if (typeof errorMsg === 'string' && (errorMsg.includes('503') || errorMsg.includes('high demand'))) {
+        errorMsg = 'O serviço de IA está temporariamente com alta demanda. Por favor, tente novamente em alguns instantes.';
+      }
       return res.status(500).json({
-        error: error.message || 'Erro inesperado ao processar print com inteligência artificial.'
+        success: false,
+        error: errorMsg
       });
     }
   });
