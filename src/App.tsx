@@ -50,9 +50,8 @@ import {
   ExternalLink,
   Upload,
   UserPlus,
-  Camera
+  FileText
 } from 'lucide-react';
-import { PrintModal } from './components/PrintModal';
 import { 
   DndContext, 
   closestCorners,
@@ -386,15 +385,27 @@ function KanbanCard({ client, onOpenPurchases }: { client: Cliente, onOpenPurcha
         </div>
       )}
       {client.comprou && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 mb-1">
           {client.comprou.split(', ').slice(0, 2).map((p, i) => (
-            <span key={i} className="text-[9px] bg-brand-rose/5 text-brand-rose/70 px-1.5 py-0.5 rounded-md">
+            <span key={i} className="text-[9px] bg-brand-rose/5 text-brand-rose/70 px-1.5 py-0.5 rounded-md" title={`Comprado: ${p}`}>
               {p}
             </span>
           ))}
           {client.comprou.split(', ').length > 2 && (
             <span className="text-[9px] text-brand-rose/40">+{client.comprou.split(', ').length - 2}</span>
           )}
+        </div>
+      )}
+      {client.queria_comprar && (
+        <div className="flex items-center gap-1 text-[9px] text-brand-rose/60 truncate mt-0.5" title={`Desejados: ${client.queria_comprar}`}>
+          <Heart className="w-2.5 h-2.5 text-brand-gold shrink-0" />
+          <span className="truncate">{client.queria_comprar}</span>
+        </div>
+      )}
+      {client.observacoes && (
+        <div className="flex items-center gap-1 text-[9px] text-brand-rose/50 truncate mt-0.5" title={`Obs: ${client.observacoes}`}>
+          <FileText className="w-2.5 h-2.5 text-brand-rose/40 shrink-0" />
+          <span className="truncate">{client.observacoes}</span>
         </div>
       )}
     </div>
@@ -441,7 +452,6 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'form' | 'list' | 'kanban'>('list');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [purchasesModalClient, setPurchasesModalClient] = useState<Cliente | null>(null);
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [appConfirmDialog, setAppConfirmDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
 
   // Helper function to extract info from text
@@ -452,6 +462,7 @@ export default function App() {
     let foundSize = '';
     let foundCity = '';
     let foundProducts: string[] = [];
+    let foundDesired = '';
     let foundChannel = '';
     let foundObs = '';
 
@@ -491,6 +502,17 @@ export default function App() {
           channelVal?.toLowerCase().includes(c.toLowerCase())
         );
         if (match) foundChannel = match;
+        consumedLines.add(index);
+      }
+      else if (lowerLine.match(/comprou:|comprados:|produtos comprados:|levou:|compra:/i)) {
+        const pVal = line.split(/comprou:|comprados:|produtos comprados:|levou:|compra:/i).pop()?.trim();
+        if (pVal) {
+          foundProducts.push(pVal);
+          consumedLines.add(index);
+        }
+      }
+      else if (lowerLine.match(/desejados:|produtos desejados:|queria:|quer:|deseja:|interesse:|interesses:|produtos de interesse:/i)) {
+        foundDesired = line.split(/desejados:|produtos desejados:|queria:|quer:|deseja:|interesse:|interesses:|produtos de interesse:/i).pop()?.trim() || '';
         consumedLines.add(index);
       }
       else if (lowerLine.includes('obs:') || lowerLine.includes('observação:') || lowerLine.includes('nota:') || lowerLine.includes('detalhes:') || lowerLine.includes('comentário:')) {
@@ -577,7 +599,7 @@ export default function App() {
       }
     }
 
-    return { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs };
+    return { foundName, foundPhone, foundSize, foundCity, foundProducts, foundDesired, foundObs, foundChannel };
   };
 
   // Live extraction effect
@@ -585,9 +607,9 @@ export default function App() {
     if (!isImporting || !importText.trim()) return;
 
     const timeoutId = setTimeout(() => {
-      const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs } = extractInfoFromText(importText);
+      const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundDesired, foundObs, foundChannel } = extractInfoFromText(importText);
 
-      if (foundName || foundPhone || foundSize || foundCity || foundProducts.length > 0 || foundChannel || foundObs) {
+      if (foundName || foundPhone || foundSize || foundCity || foundProducts.length > 0 || foundDesired || foundObs || foundChannel) {
         setFormData(prev => ({
           ...prev,
           nome: foundName || prev.nome,
@@ -595,7 +617,8 @@ export default function App() {
           tamanho: foundSize || prev.tamanho,
           cidade: foundCity || prev.cidade,
           comprou: foundProducts.length > 0 ? foundProducts.join(', ') : prev.comprou,
-          queria_comprar: foundObs || prev.queria_comprar,
+          queria_comprar: foundDesired || prev.queria_comprar,
+          observacoes: foundObs || prev.observacoes,
           canal: foundChannel || prev.canal
         }));
       }
@@ -615,6 +638,7 @@ export default function App() {
     cidade: '',
     comprou: '',
     queria_comprar: '',
+    observacoes: '',
     canal: ''
   });
 
@@ -775,6 +799,7 @@ export default function App() {
         cidade: '',
         comprou: '',
         queria_comprar: '',
+        observacoes: '',
         canal: ''
       });
       setEditingClient(null);
@@ -808,6 +833,7 @@ export default function App() {
       cidade: client.cidade || '',
       comprou: client.comprou || '',
       queria_comprar: client.queria_comprar || '',
+      observacoes: client.observacoes || '',
       canal: client.canal || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -823,6 +849,7 @@ export default function App() {
       cidade: '',
       comprou: '',
       queria_comprar: '',
+      observacoes: '',
       canal: ''
     });
   };
@@ -830,7 +857,7 @@ export default function App() {
   const handleSmartImport = () => {
     if (!importText.trim()) return;
 
-    const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs } = extractInfoFromText(importText);
+    const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundDesired, foundObs, foundChannel } = extractInfoFromText(importText);
 
     setFormData(prev => ({
       ...prev,
@@ -839,7 +866,8 @@ export default function App() {
       tamanho: foundSize || prev.tamanho,
       cidade: foundCity || prev.cidade,
       comprou: foundProducts.length > 0 ? foundProducts.join(', ') : prev.comprou,
-      queria_comprar: foundObs || prev.queria_comprar,
+      queria_comprar: foundDesired || prev.queria_comprar,
+      observacoes: foundObs || prev.observacoes,
       canal: foundChannel || prev.canal
     }));
 
@@ -854,7 +882,7 @@ export default function App() {
       const text = await navigator.clipboard.readText();
       if (text) {
         setImportText(text);
-        const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundChannel, foundObs } = extractInfoFromText(text);
+        const { foundName, foundPhone, foundSize, foundCity, foundProducts, foundDesired, foundObs, foundChannel } = extractInfoFromText(text);
         
         setFormData(prev => ({ 
           ...prev, 
@@ -863,7 +891,8 @@ export default function App() {
           tamanho: foundSize || prev.tamanho, 
           cidade: foundCity || prev.cidade, 
           comprou: foundProducts.length > 0 ? foundProducts.join(', ') : prev.comprou, 
-          queria_comprar: foundObs || prev.queria_comprar, 
+          queria_comprar: foundDesired || prev.queria_comprar, 
+          observacoes: foundObs || prev.observacoes, 
           canal: foundChannel || prev.canal 
         }));
         
@@ -874,49 +903,6 @@ export default function App() {
       console.error('Falha ao ler área de transferência:', err);
       setFeedback({ type: 'error', message: 'Permita o acesso à área de transferência para colar automaticamente.' });
     }
-  };
-
-  const handleRegisterFromPrint = async (data: any) => {
-    const effectiveUid = user?.uid || getGuestId();
-    const newClient: Omit<Cliente, 'id'> = {
-      nome: data.nome?.trim() || 'Cliente WhatsApp',
-      telefone: data.telefone?.trim() || '',
-      tamanho: data.tamanho || '',
-      cidade: data.cidade || '',
-      comprou: data.comprou || '',
-      queria_comprar: data.queria_comprar || '',
-      canal: data.canal || 'WhatsApp',
-      comprou_status: data.comprou_status === 'sim' ? 'sim' : 'nao',
-      status_crm: 'CLIENTE NOVO',
-      created_at: Timestamp.now(),
-      uid: effectiveUid
-    };
-
-    await addDoc(collection(db, 'clientes'), newClient);
-    setFeedback({ 
-      type: 'success', 
-      message: `Cliente ${newClient.nome} cadastrada com sucesso via Print!` 
-    });
-    setTimeout(() => setFeedback(null), 3500);
-  };
-
-  const handleFillFormFromPrint = (data: any) => {
-    setFormData(prev => ({
-      ...prev,
-      nome: data.nome || prev.nome,
-      telefone: data.telefone || prev.telefone,
-      tamanho: data.tamanho || prev.tamanho,
-      cidade: data.cidade || prev.cidade,
-      comprou: data.comprou || prev.comprou,
-      queria_comprar: data.queria_comprar || prev.queria_comprar,
-      canal: data.canal || 'WhatsApp'
-    }));
-    setViewMode('form');
-    setFeedback({
-      type: 'success',
-      message: 'Informações do print carregadas no formulário! Revise os campos e clique em Salvar.'
-    });
-    setTimeout(() => setFeedback(null), 3500);
   };
 
   const toggleStatus = async (client: Cliente) => {
@@ -1069,7 +1055,8 @@ export default function App() {
       const matchText = c.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
                         c.telefone.includes(searchTerm) ||
                         (c.comprou && c.comprou.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                        (c.queria_comprar && c.queria_comprar.toLowerCase().includes(searchTerm.toLowerCase()));
+                        (c.queria_comprar && c.queria_comprar.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                        (c.observacoes && c.observacoes.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchSize = !searchSize || (c.tamanho && c.tamanho.toLowerCase().includes(searchSize.toLowerCase()));
       const matchCity = !searchCity || (c.cidade && c.cidade.toLowerCase().includes(searchCity.toLowerCase()));
       return matchText && matchSize && matchCity;
@@ -1094,13 +1081,15 @@ export default function App() {
       c.tamanho || '-',
       c.cidade || '-',
       c.comprou || '-',
+      c.queria_comprar || '-',
+      c.observacoes || '-',
       c.canal,
       c.comprou_status === 'sim' ? 'Sim' : 'Não',
       format(c.created_at.toDate(), 'dd/MM/yyyy')
     ]);
 
     autoTable(doc, {
-      head: [['Nome', 'Telefone', 'Tam', 'Cidade', 'Interesse', 'Canal', 'Status', 'Data']],
+      head: [['Nome', 'Telefone', 'Tam', 'Cidade', 'Comprados', 'Desejados', 'Observações', 'Canal', 'Status', 'Data']],
       body: tableData,
       startY: 35,
       styles: { fontSize: 8 },
@@ -1294,7 +1283,12 @@ export default function App() {
         
         const tamanho = row['Tam'] === '-' ? '' : (row['Tam']?.trim() || '');
         const cidade = row['Cidade'] === '-' ? '' : (row['Cidade']?.trim() || '');
-        const interesse = row['Interesse'] === '-' ? '' : (row['Interesse']?.trim() || '');
+        const comprouVal = row['Comprados'] || row['Produtos Comprados'] || row['Interesse'] || '';
+        const comprou = comprouVal === '-' ? '' : comprouVal.trim();
+        const desejadosVal = row['Desejados'] || row['Produtos Desejados'] || '';
+        const queria_comprar = desejadosVal === '-' ? '' : desejadosVal.trim();
+        const obsVal = row['Observações'] || row['Observacoes'] || row['Obs'] || '';
+        const observacoes = obsVal === '-' ? '' : obsVal.trim();
         const canal = row['Canal']?.trim() || 'WhatsApp';
         const comprou_status = (row['Status'] || 'Não').toLowerCase().includes('sim') ? 'sim' : 'nao';
         
@@ -1313,8 +1307,9 @@ export default function App() {
           telefone,
           tamanho,
           cidade,
-          comprou: interesse,
-          queria_comprar: '',
+          comprou,
+          queria_comprar,
+          observacoes,
           comprou_status,
           canal,
           uid: user?.uid || getGuestId(),
@@ -1487,14 +1482,6 @@ export default function App() {
             >
               <LayoutDashboard className="w-5 h-5" /> Kanban
             </button>
-            <button 
-              id="btn-nav-print"
-              onClick={() => setIsPrintModalOpen(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all text-amber-900 bg-gradient-to-r from-amber-100 to-amber-200/80 hover:from-amber-200 hover:to-amber-300 border border-amber-300/70 shadow-xs"
-              title="Cadastrar cliente através de print do WhatsApp"
-            >
-              <Camera className="w-5 h-5 text-amber-600" /> Print
-            </button>
           </div>
         </div>
 
@@ -1512,25 +1499,13 @@ export default function App() {
             </h3>
             <div className="flex items-center gap-2 flex-wrap">
               {!editingClient && (
-                <>
-                  <button 
-                    id="btn-form-print"
-                    type="button"
-                    onClick={() => setIsPrintModalOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl text-xs font-bold hover:from-amber-600 hover:to-amber-700 transition-all shadow-sm"
-                    title="Importar dados por Print do WhatsApp com IA"
-                  >
-                    <Camera className="w-4 h-4" /> 
-                    Print
-                  </button>
-                  <button 
-                    onClick={() => setIsImporting(!isImporting)}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100"
-                  >
-                    <Clipboard className="w-4 h-4" /> 
-                    {isImporting ? 'Cancelar' : 'Importar do WhatsApp'}
-                  </button>
-                </>
+                <button 
+                  onClick={() => setIsImporting(!isImporting)}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100"
+                >
+                  <Clipboard className="w-4 h-4" /> 
+                  {isImporting ? 'Cancelar' : 'Importar do WhatsApp'}
+                </button>
               )}
               {editingClient && (
                 <button 
@@ -1573,7 +1548,7 @@ export default function App() {
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
                 className="w-full h-32 p-4 rounded-xl border border-emerald-200 focus:border-emerald-500 outline-none bg-white text-sm mb-4"
-                placeholder="Ex: Maria Silva&#10;Tel: 11 99999-9999&#10;Cidade: São Paulo&#10;Tamanho: M&#10;Interesse: Vestidos, Saias"
+                placeholder="Ex: Maria Silva&#10;Tel: 11 99999-9999&#10;Cidade: São Paulo&#10;Tamanho: M&#10;Comprados: Vestidos, Saias&#10;Desejados: Macaquinho linho&#10;Obs: Prefere cores claras"
               />
               <button 
                 onClick={() => {
@@ -1585,7 +1560,7 @@ export default function App() {
                 <Sparkles className="w-4 h-4" /> Finalizar e Fechar Importador
               </button>
               <p className="text-[10px] text-emerald-600/60 mt-2 text-center">
-                O sistema identifica automaticamente: Nome, Telefone, Cidade, Tamanho, Produtos e Observações.
+                O sistema identifica automaticamente: Nome, Telefone, Cidade, Tamanho, Produtos Comprados, Desejados e Observações.
               </p>
             </motion.div>
           )}
@@ -1702,7 +1677,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
-                  <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produtos de Interesse
+                  <ShoppingBag className="w-4 h-4 text-brand-gold" /> Produtos comprados
                 </label>
                 <input 
                   type="text" 
@@ -1714,14 +1689,14 @@ export default function App() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
-                  <Heart className="w-4 h-4 text-brand-gold" /> Observações
+                  <Heart className="w-4 h-4 text-brand-gold" /> Produtos desejados
                 </label>
                 <input 
                   type="text" 
                   value={formData.queria_comprar}
                   onChange={e => setFormData({...formData, queria_comprar: e.target.value})}
                   className="w-full px-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
-                  placeholder="Detalhes adicionais"
+                  placeholder="Ex: Macaquinho linho, Blusa seda (desejos da cliente)"
                 />
               </div>
             </div>
@@ -1745,6 +1720,19 @@ export default function App() {
                 <option value="Indicação">👥 Indicação</option>
                 <option value="Outro">📌 Outro</option>
               </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-brand-rose flex items-center gap-2">
+                <FileText className="w-4 h-4 text-brand-gold" /> Observações
+              </label>
+              <textarea 
+                rows={2}
+                value={formData.observacoes}
+                onChange={e => setFormData({...formData, observacoes: e.target.value})}
+                className="w-full px-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50 resize-none"
+                placeholder="Detalhes adicionais, preferências de estilo, medidas especiais, anotações da cliente..."
+              />
             </div>
 
             <button 
@@ -1774,7 +1762,7 @@ export default function App() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-gold" />
               <input 
                 type="text" 
-                placeholder="Buscar por nome, telefone, interesse ou obs..."
+                placeholder="Buscar por nome, telefone, produtos comprados ou desejados..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-brand-rose/10 focus:border-brand-gold outline-none transition-all bg-white/50"
@@ -1820,15 +1808,6 @@ export default function App() {
                 className="bg-white text-brand-rose border border-brand-gold/30 font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 hover:bg-brand-blush"
               >
                 <BarChart3 className="w-5 h-5 text-brand-gold" /> Relatório
-              </button>
-              <button 
-                id="btn-action-print"
-                type="button"
-                onClick={() => setIsPrintModalOpen(true)}
-                className="bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 shadow-sm hover:from-amber-600 hover:to-amber-700"
-                title="Cadastrar cliente por Print do WhatsApp com IA"
-              >
-                <Camera className="w-5 h-5" /> Print
               </button>
               <button 
                 onClick={exportPDF}
@@ -1910,13 +1889,13 @@ export default function App() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="bg-white/50 rounded-lg p-3 border border-brand-gold/10">
                           <p className="text-[10px] uppercase tracking-wider text-brand-rose/40 font-bold mb-1 flex items-center gap-1">
-                            <ShoppingBag className="w-3 h-3 text-brand-gold" /> Interesse
+                            <ShoppingBag className="w-3 h-3 text-brand-gold" /> Produtos Comprados
                           </p>
                           <p className="text-brand-rose text-sm font-medium">{client.comprou || '—'}</p>
                         </div>
                         <div className="bg-white/50 rounded-lg p-3 border border-brand-gold/10">
                           <p className="text-[10px] uppercase tracking-wider text-brand-rose/40 font-bold mb-1 flex items-center gap-1">
-                            <Heart className="w-3 h-3 text-brand-gold" /> Obs
+                            <Heart className="w-3 h-3 text-brand-gold" /> Produtos Desejados
                           </p>
                           <p className="text-brand-rose text-sm font-medium">{client.queria_comprar || '—'}</p>
                         </div>
@@ -1927,6 +1906,18 @@ export default function App() {
                           <p className="text-brand-rose text-sm font-medium">{client.canal}</p>
                         </div>
                       </div>
+
+                      {client.observacoes && (
+                        <div className="bg-white/50 rounded-lg p-3 border border-brand-gold/10 flex items-start gap-2">
+                          <FileText className="w-3.5 h-3.5 text-brand-gold shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-[10px] uppercase tracking-wider text-brand-rose/40 font-bold mb-0.5">
+                              Observações
+                            </p>
+                            <p className="text-brand-rose text-sm font-medium whitespace-pre-wrap">{client.observacoes}</p>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex flex-wrap gap-4 text-xs text-brand-rose/40 font-medium">
                         <span className="flex items-center gap-1 bg-white/50 px-2 py-1 rounded-full border border-brand-gold/10">
@@ -2019,14 +2010,6 @@ export default function App() {
           onClose={() => setPurchasesModalClient(null)} 
         />
       )}
-
-      {/* Print WhatsApp Extraction Modal */}
-      <PrintModal 
-        isOpen={isPrintModalOpen}
-        onClose={() => setIsPrintModalOpen(false)}
-        onRegisterDirect={handleRegisterFromPrint}
-        onFillForm={handleFillFormFromPrint}
-      />
 
       {/* Limit Warning */}
       {clients.length >= 999 && (

@@ -29,6 +29,10 @@
           "type": "string",
           "description": "O que a cliente desejava comprar"
         },
+        "observacoes": {
+          "type": "string",
+          "description": "Observações gerais sobre a cliente"
+        },
         "canal": {
           "type": "string",
           "description": "Canal de venda (WhatsApp, Instagram, etc)"

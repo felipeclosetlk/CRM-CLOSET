@@ -15,6 +15,7 @@ export interface Cliente {
   cidade?: string;
   comprou?: string;
   queria_comprar?: string;
+  observacoes?: string;
   canal: string;
   comprou_status: 'sim' | 'nao';
   status_crm?: 'CLIENTE NOVO' | 'CLIENTE INTERESSADO' | 'CLIENTE FINALIZADO';
