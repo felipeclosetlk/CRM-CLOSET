@@ -1,0 +1,142 @@
+import 'dotenv/config';
+import express from 'express';
+import path from 'path';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI, Type } from '@google/genai';
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  // Middleware for large payload (support base64 images from WhatsApp screenshot prints)
+  app.use(express.json({ limit: '35mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '35mb' }));
+
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Extract client information from WhatsApp screenshot print
+  app.post('/api/extract-print', async (req, res) => {
+    try {
+      const { image, mimeType } = req.body;
+      if (!image || typeof image !== 'string') {
+        return res.status(400).json({ error: 'Nenhuma imagem foi recebida.' });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({
+          error: 'A chave GEMINI_API_KEY não foi encontrada nas configurações do ambiente.'
+        });
+      }
+
+      // Handle data URL scheme if present
+      let cleanBase64 = image;
+      let detectedMimeType = mimeType || 'image/png';
+      if (image.includes(';base64,')) {
+        const parts = image.split(';base64,');
+        detectedMimeType = parts[0].replace('data:', '').trim() || detectedMimeType;
+        cleanBase64 = parts[1].trim();
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const prompt = `Você é um assistente especialista em CRM de vestuário e moda para atendimento via WhatsApp.
+Analise a imagem enviada, que é um print do WhatsApp (pode ser o perfil de contato da cliente, conversa com mensagens, pedido, dados de envio ou comprovante).
+
+Extraia com a maior precisão possível as informações cadastrais da cliente:
+- nome: Nome completo ou primeiro nome da cliente. Se for print de contato ou perfil, use o nome exibido.
+- telefone: Número de telefone (WhatsApp) da cliente com DDD (apenas números ou formatado).
+- tamanho: Tamanho ou numeração de roupas mencionadas no print (ex: PP, P, M, G, GG, 34, 36, 38, 40, 42, 44 ou combinações separadas por vírgula).
+- cidade: Cidade / Estado ou endereço da cliente, se mencionado.
+- comprou: Produtos ou peças de interesse ou que foram solicitados/comprados na conversa.
+- queria_comprar: Observações adicionais, preferências, detalhes da conversa ou dúvidas.
+- canal: "WhatsApp"
+- comprou_status: "sim" se no print constar confirmação de pagamento/compra concluída, ou "nao" se ainda for atendimento/interesse/orçamento.
+
+Retorne rigorosamente no schema JSON definido.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: detectedMimeType,
+                data: cleanBase64,
+              }
+            },
+            {
+              text: prompt
+            }
+          ]
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              nome: { type: Type.STRING, description: 'Nome da cliente' },
+              telefone: { type: Type.STRING, description: 'Telefone com DDD' },
+              tamanho: { type: Type.STRING, description: 'Tamanho de roupas' },
+              cidade: { type: Type.STRING, description: 'Cidade ou localização' },
+              comprou: { type: Type.STRING, description: 'Produtos de interesse ou comprados' },
+              queria_comprar: { type: Type.STRING, description: 'Observações da conversa' },
+              canal: { type: Type.STRING, description: 'Canal de origem (WhatsApp)' },
+              comprou_status: { type: Type.STRING, description: 'sim ou nao' }
+            }
+          }
+        }
+      });
+
+      const responseText = response.text?.trim() || '{}';
+      let parsed = {};
+      try {
+        parsed = JSON.parse(responseText);
+      } catch (err) {
+        console.error('Falha ao converter resposta do modelo para JSON:', responseText);
+        return res.status(500).json({ error: 'Não foi possível interpretar o resultado da IA.' });
+      }
+
+      return res.json({
+        success: true,
+        data: parsed
+      });
+    } catch (error: any) {
+      console.error('Erro na rota /api/extract-print:', error);
+      return res.status(500).json({
+        error: error.message || 'Erro inesperado ao processar print com inteligência artificial.'
+      });
+    }
+  });
+
+  // Vite middleware for development vs static build in production
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();

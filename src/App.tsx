@@ -49,8 +49,10 @@ import {
   List,
   ExternalLink,
   Upload,
-  UserPlus
+  UserPlus,
+  Camera
 } from 'lucide-react';
+import { PrintModal } from './components/PrintModal';
 import { 
   DndContext, 
   closestCorners,
@@ -439,6 +441,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'form' | 'list' | 'kanban'>('list');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [purchasesModalClient, setPurchasesModalClient] = useState<Cliente | null>(null);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [appConfirmDialog, setAppConfirmDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
 
   // Helper function to extract info from text
@@ -871,6 +874,49 @@ export default function App() {
       console.error('Falha ao ler área de transferência:', err);
       setFeedback({ type: 'error', message: 'Permita o acesso à área de transferência para colar automaticamente.' });
     }
+  };
+
+  const handleRegisterFromPrint = async (data: any) => {
+    const effectiveUid = user?.uid || getGuestId();
+    const newClient: Omit<Cliente, 'id'> = {
+      nome: data.nome?.trim() || 'Cliente WhatsApp',
+      telefone: data.telefone?.trim() || '',
+      tamanho: data.tamanho || '',
+      cidade: data.cidade || '',
+      comprou: data.comprou || '',
+      queria_comprar: data.queria_comprar || '',
+      canal: data.canal || 'WhatsApp',
+      comprou_status: data.comprou_status === 'sim' ? 'sim' : 'nao',
+      status_crm: 'CLIENTE NOVO',
+      created_at: Timestamp.now(),
+      uid: effectiveUid
+    };
+
+    await addDoc(collection(db, 'clientes'), newClient);
+    setFeedback({ 
+      type: 'success', 
+      message: `Cliente ${newClient.nome} cadastrada com sucesso via Print!` 
+    });
+    setTimeout(() => setFeedback(null), 3500);
+  };
+
+  const handleFillFormFromPrint = (data: any) => {
+    setFormData(prev => ({
+      ...prev,
+      nome: data.nome || prev.nome,
+      telefone: data.telefone || prev.telefone,
+      tamanho: data.tamanho || prev.tamanho,
+      cidade: data.cidade || prev.cidade,
+      comprou: data.comprou || prev.comprou,
+      queria_comprar: data.queria_comprar || prev.queria_comprar,
+      canal: data.canal || 'WhatsApp'
+    }));
+    setViewMode('form');
+    setFeedback({
+      type: 'success',
+      message: 'Informações do print carregadas no formulário! Revise os campos e clique em Salvar.'
+    });
+    setTimeout(() => setFeedback(null), 3500);
   };
 
   const toggleStatus = async (client: Cliente) => {
@@ -1441,6 +1487,14 @@ export default function App() {
             >
               <LayoutDashboard className="w-5 h-5" /> Kanban
             </button>
+            <button 
+              id="btn-nav-print"
+              onClick={() => setIsPrintModalOpen(true)}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all text-amber-900 bg-gradient-to-r from-amber-100 to-amber-200/80 hover:from-amber-200 hover:to-amber-300 border border-amber-300/70 shadow-xs"
+              title="Cadastrar cliente através de print do WhatsApp"
+            >
+              <Camera className="w-5 h-5 text-amber-600" /> Print
+            </button>
           </div>
         </div>
 
@@ -1456,15 +1510,27 @@ export default function App() {
               {editingClient ? <Edit2 className="w-7 h-7 text-brand-gold" /> : <PlusCircle className="w-7 h-7 text-brand-gold" />}
               {editingClient ? 'Editar Cadastro' : 'Novo Cadastro'}
             </h3>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {!editingClient && (
-                <button 
-                  onClick={() => setIsImporting(!isImporting)}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100"
-                >
-                  <Clipboard className="w-4 h-4" /> 
-                  {isImporting ? 'Cancelar' : 'Importar do WhatsApp'}
-                </button>
+                <>
+                  <button 
+                    id="btn-form-print"
+                    type="button"
+                    onClick={() => setIsPrintModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl text-xs font-bold hover:from-amber-600 hover:to-amber-700 transition-all shadow-sm"
+                    title="Importar dados por Print do WhatsApp com IA"
+                  >
+                    <Camera className="w-4 h-4" /> 
+                    Print
+                  </button>
+                  <button 
+                    onClick={() => setIsImporting(!isImporting)}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100"
+                  >
+                    <Clipboard className="w-4 h-4" /> 
+                    {isImporting ? 'Cancelar' : 'Importar do WhatsApp'}
+                  </button>
+                </>
               )}
               {editingClient && (
                 <button 
@@ -1756,6 +1822,15 @@ export default function App() {
                 <BarChart3 className="w-5 h-5 text-brand-gold" /> Relatório
               </button>
               <button 
+                id="btn-action-print"
+                type="button"
+                onClick={() => setIsPrintModalOpen(true)}
+                className="bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2 shadow-sm hover:from-amber-600 hover:to-amber-700"
+                title="Cadastrar cliente por Print do WhatsApp com IA"
+              >
+                <Camera className="w-5 h-5" /> Print
+              </button>
+              <button 
                 onClick={exportPDF}
                 className="gold-button font-bold py-2 px-6 rounded-xl transition-all flex items-center gap-2"
               >
@@ -1944,6 +2019,14 @@ export default function App() {
           onClose={() => setPurchasesModalClient(null)} 
         />
       )}
+
+      {/* Print WhatsApp Extraction Modal */}
+      <PrintModal 
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        onRegisterDirect={handleRegisterFromPrint}
+        onFillForm={handleFillFormFromPrint}
+      />
 
       {/* Limit Warning */}
       {clients.length >= 999 && (

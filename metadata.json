@@ -1,5 +1,8 @@
 {
   "name": "CRM",
   "description": "Sistema profissional de CRM para cadastro, acompanhamento e gestão de vendas.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
